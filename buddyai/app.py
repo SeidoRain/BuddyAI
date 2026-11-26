@@ -161,9 +161,10 @@ class BuddyApp:
         # coordinator's next reply, which carries them to the user.
         self._root_agent.after_model_callback = self._attach_notices
         self._pending_notices = []
-        # The browser chat gives no "new message" signal, so a change in the
-        # newest user text is what starts a new request there.
-        self._last_request_text = None
+        # ADK gives each user message its own invocation ID; a new ID is what
+        # starts a new request for the untrusted-content guard.
+        self._last_request_invocation = None
+        self._root_agent.before_agent_callback = self._start_request
         self._startup_note = ""
         self._saves_at_turn_start = None
         self._last_failed_invocation = None
@@ -367,9 +368,6 @@ class BuddyApp:
         In that case BuddyAI first moves to the next best model, unless
         automatic switching is off or no model is left.
         """
-        if text != self._last_request_text:
-            self._last_request_text = text
-            self._toolkit.begin_request()
         reply = self.handle_command(text)
         if reply is not None:
             return reply
@@ -414,6 +412,18 @@ class BuddyApp:
                 part.text = f"{self._take_notices()}\n\n{part.text}"
                 break
         return response
+
+    def _start_request(self, callback_context):
+        """ADK calls this when the coordinator starts work on a user message.
+
+        Only a new invocation ID counts as a new request. Text inside the model
+        request is not used, because a file or web page could imitate a message.
+        """
+        invocation = getattr(callback_context, "invocation_id", None)
+        if invocation != self._last_request_invocation:
+            self._last_request_invocation = invocation
+            self._toolkit.begin_request()
+        return None
 
     def _attach_notices(self, callback_context, llm_response):
         """ADK calls this after each coordinator model reply."""
