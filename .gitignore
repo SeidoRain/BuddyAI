@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+data/
+.env
+buddy_agent/.env
+.pytest_cache/
+.adk/
+*.log
