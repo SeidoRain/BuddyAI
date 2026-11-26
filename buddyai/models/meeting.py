@@ -12,6 +12,7 @@ class Meeting(WorkItem):
 
     ID_PREFIX = "mtg"
     ITEM_TYPE = "meeting"
+    SOURCE_CALENDAR_FILE = "calendar_file"
 
     def __init__(
         self,
@@ -78,6 +79,12 @@ class Meeting(WorkItem):
         self._start = aware_start
         self._end = aware_end
 
+    def set_location(self, location):
+        """Validate and update the meeting location; an empty string clears it."""
+        if not isinstance(location, str):
+            raise InvalidInputError("Location must be text.")
+        self._location = location.strip()
+
     def add_attendee(self, contact):
         """Add a Contact to the meeting attendee list."""
         if not isinstance(contact, Contact):
@@ -108,7 +115,10 @@ class Meeting(WorkItem):
                 f"{end_local.strftime('%Y-%m-%d %H:%M')}"
             )
         place = f" @ {self._location}" if self._location else ""
-        return f"Meeting: {self._title} ({span}{place}, id: {self._item_id})"
+        summary = f"Meeting: {self._title} ({span}{place}, id: {self._item_id})"
+        if self._source == self.SOURCE_CALENDAR_FILE:
+            summary += " [calendar file]"
+        return summary
 
     def to_dict(self):
         """Serialize the meeting and its attendees to a JSON-compatible dictionary."""

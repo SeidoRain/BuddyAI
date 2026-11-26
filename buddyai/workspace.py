@@ -43,6 +43,21 @@ class Workspace:
     def sources(self):
         return list(self._sources)
 
+    def replace_source(self, source):
+        """Replace any source with the same name, then append the given source."""
+        self._sources = [
+            existing for existing in self._sources if existing.name != source.name
+        ]
+        self._sources.append(source)
+
+    def remove_source(self, name):
+        """Remove any source with the given name; return True if one was removed."""
+        before = len(self._sources)
+        self._sources = [
+            existing for existing in self._sources if existing.name != name
+        ]
+        return len(self._sources) < before
+
     def load(self):
         """Rebuild local managers from every writable data source."""
         self._tasks = TaskManager()

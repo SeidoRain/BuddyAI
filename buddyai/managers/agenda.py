@@ -7,6 +7,7 @@ from buddyai.exceptions import (
     AmbiguousItemError,
     InvalidInputError,
     MeetingNotFoundError,
+    ReadOnlySourceError,
     SchedulingConflictError,
 )
 from buddyai.models.meeting import Meeting
@@ -136,12 +137,16 @@ class Agenda:
                 if existing_end <= candidate:
                     continue
                 if candidate + duration <= existing_start:
+                    # Assumption: the slot lies inside the working day and has the requested length.
+                    assert work_start <= candidate and candidate + duration <= work_end
                     return candidate
                 candidate = max(candidate, existing_end)
                 if candidate + duration > work_end:
                     break
 
             if candidate + duration <= work_end:
+                # Same assumption as above: inside the working day, requested length.
+                assert work_start <= candidate and candidate + duration <= work_end
                 return candidate
 
         raise SchedulingConflictError(
@@ -229,10 +234,40 @@ class Agenda:
         meeting.reschedule(start, end)
         return meeting
 
+    def update_meeting(self, meeting_id, title=None, location=None):
+        """Rename a meeting and/or change its location, all or nothing."""
+        if title is None and location is None:
+            raise InvalidInputError("Provide a new title or location.")
+        meeting = self.get_meeting(meeting_id)
+
+        if title is not None:
+            if not isinstance(title, str) or not title.strip():
+                raise InvalidInputError("Title cannot be empty.")
+        if location is not None:
+            if not isinstance(location, str):
+                raise InvalidInputError("Location must be text.")
+
+        if title is not None:
+            meeting.rename(title)
+        if location is not None:
+            meeting.set_location(location)
+        return meeting
+
     def cancel(self, meeting_id):
         """Cancel and remove a local meeting by ID."""
         meeting = self.get_meeting(meeting_id)
         return self._meetings.pop(meeting.item_id)
+
+    def _refuse_if_external(self, id_or_title):
+        """Raise ReadOnlySourceError if id_or_title matches a read-only external meeting."""
+        query_lower = id_or_title.lower()
+        for mtg in self._external:
+            if mtg.item_id.lower() == query_lower or query_lower in mtg.title.lower():
+                raise ReadOnlySourceError(
+                    f"'{mtg.title}' comes from your calendar file, so BuddyAI "
+                    "cannot change, move or cancel it. Change it in your calendar "
+                    "app, then load the file again with /calendar <path>."
+                )
 
     def get_meeting(self, meeting_id):
         """Retrieve a local meeting by exact ID or raise MeetingNotFoundError."""
@@ -240,6 +275,7 @@ class Agenda:
             raise MeetingNotFoundError("Meeting ID cannot be empty.")
         key = meeting_id.strip()
         if key not in self._meetings:
+            self._refuse_if_external(key)
             raise MeetingNotFoundError(f"Meeting '{key}' was not found.")
         return self._meetings[key]
 
@@ -269,6 +305,7 @@ class Agenda:
             mtg for mtg in candidates if query_lower in mtg.title.lower()
         ]
         if not partial_matches:
+            self._refuse_if_external(query)
             raise MeetingNotFoundError(f"No meeting found matching '{query}'.")
         if len(partial_matches) > 1:
             labels = ", ".join(f"{m.item_id} ({m.title})" for m in partial_matches)
