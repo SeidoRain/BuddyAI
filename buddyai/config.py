@@ -8,19 +8,19 @@ from buddyai.exceptions import InvalidDueDateError, InvalidInputError
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENV_FILE = os.path.join(PROJECT_ROOT, "buddy_agent", ".env")
-DEFAULT_MODEL = "gemini-4-hydrogen"
+DEFAULT_MODEL = "gemini-3.5-flash-lite"
 FALLBACK_MODEL = "gemini-3.6-flash"
 DEFAULT_TIMEZONE = "Asia/Manila"
-# Models BuddyAI may use, best first. When one runs out of free requests
+# Models BuddyAI may use, in order. When one runs out of free requests
 # BuddyAI moves to the first one in this list that still works, and the user
 # can pick any of them with /model. Free daily limits seen on 2026-11-24:
-# 20 requests for Hydrogen and the Flash models, 500 for each Flash Lite model.
+# 500 requests for each Flash Lite model, 20 for Hydrogen and the Flash models.
 DEFAULT_MODEL_CHOICES = [
-    "gemini-4-hydrogen",
     "gemini-3.5-flash-lite",
-    "gemini-3.1-flash-lite",
     "gemini-3.6-flash",
     "gemini-3.8-flash",
+    "gemini-4-hydrogen",
+    "gemini-3.1-flash-lite",
 ]
 # Longest a single request to Gemini may take before it is abandoned, so a call
 # that never answers cannot freeze the chat. The SDK's own retry option is not

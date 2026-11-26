@@ -41,13 +41,17 @@ Things to try:
 - `Move my thesis meeting to a free slot tomorrow afternoon and remind me to bring the draft.`
 - `Give me my briefing for tomorrow.`
 
-Terminal commands:
+Terminal commands (type `/` for autocomplete, `↑`/`↓` for history, and `Tab` after `/file ` for path completion):
 
 | Command | What it does |
 |---|---|
 | `/file <path> [message]` | Summarizes a PDF, PNG, JPG or TXT file and proposes tasks from it. The path may contain spaces; quotes are optional. |
-| `/model` | Shows the Gemini models and which one is in use. Also works in the browser chat. |
+| `/model` | Opens the interactive model picker (or lists models in piped mode). Also works in the browser chat. |
 | `/model 2`, `/model lite`, `/model next` | Switches model by number, by name or part of a name, or to the next one in the list. Also works in the browser chat. |
+| `/brief` | Prints today's daily briefing locally with zero API calls. |
+| `/tasks` | Shows open tasks and pending proposals in a formatted table. |
+| `/status` | Shows active model, timezone, and workspace item counts. |
+| `/clear` | Clears the screen and re-renders the compact header. |
 | `/help` | Lists the commands. |
 | `/quit` | Exits. |
 
@@ -87,14 +91,14 @@ Current model: gemini-3.5-flash-lite
 
 Available models:
 
-1. gemini-4-hydrogen (daily limit reached)
-2. gemini-3.5-flash-lite (in use)
-3. gemini-3.1-flash-lite
-4. gemini-3.6-flash
-5. gemini-3.8-flash
+1. gemini-3.5-flash-lite (in use)
+2. gemini-3.6-flash
+3. gemini-3.8-flash
+4. gemini-4-hydrogen
+5. gemini-3.1-flash-lite
 
-You> /model 3
-Switched to gemini-3.1-flash-lite. Your tasks, meetings and notes are unchanged.
+You> /model 2
+Switched to gemini-3.6-flash. Your tasks, meetings and notes are unchanged.
 ```
 
 - Pick by number, by name or part of a name (`/model lite` only works when one name matches), or `/model next`.
@@ -109,7 +113,7 @@ Settings live in `buddy_agent\.env`:
 | Setting | Default | Purpose |
 |---|---|---|
 | `GOOGLE_API_KEY` | none | Your Gemini API key |
-| `BUDDYAI_MODEL` | `gemini-4-hydrogen` | Model BuddyAI starts on |
+| `BUDDYAI_MODEL` | `gemini-3.5-flash-lite` | Model BuddyAI starts on |
 | `BUDDYAI_MODELS` | the five models listed above | Models BuddyAI may use, best first, comma-separated |
 | `BUDDYAI_AUTO_SWITCH` | on | Set to `0` to choose the next model yourself |
 | `BUDDYAI_DOC_MODEL` | same as `BUDDYAI_MODEL` | Model that reads files |

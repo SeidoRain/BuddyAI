@@ -134,12 +134,29 @@ class BuddyApp:
         return self._toolkit
 
     @property
+    def briefing_service(self):
+        return self._briefing_service
+
+    @property
     def current_model(self):
         return self._catalog.current
 
     @property
     def model_catalog(self):
         return self._catalog
+
+    def sync_model_limits(self):
+        """Refresh today's daily-limit state in the model catalog."""
+        self._sync_limits()
+
+    def consume_startup_note(self):
+        """Return and clear any startup failover notice without formatting a model banner."""
+        self._sync_limits()
+        note = self._startup_note
+        if note and note in self._pending_notices:
+            self._pending_notices.remove(note)
+        self._startup_note = ""
+        return note
 
     def switch_model(self, choice):
         """Switch every agent and the file reader to another model; return its name."""
@@ -336,7 +353,24 @@ class BuddyApp:
             self._session_ready = True
         return self._runner
 
-    async def _run_turn(self, prompt_text):
+    _AGENT_STATUS_LABELS = {
+        "task_agent": "Checking tasks…",
+        "schedule_agent": "Checking schedule…",
+        "notes_agent": "Working with notes…",
+        "briefing_agent": "Building daily briefing…",
+    }
+
+    @staticmethod
+    def _notify_status(on_status, label, agent=None):
+        """Safely invoke an optional UI status callback."""
+        if on_status is None:
+            return
+        try:
+            on_status(label, agent)
+        except Exception:
+            pass
+
+    async def _run_turn(self, prompt_text, on_status=None):
         from google.genai import types
 
         runner = await self._ensure_runner()
@@ -344,12 +378,31 @@ class BuddyApp:
             role="user",
             parts=[types.Part(text=prompt_text)],
         )
+        self._notify_status(on_status, "Thinking…", None)
         final_reply = ""
         async for event in runner.run_async(
             user_id=self.USER_ID,
             session_id=self.SESSION_ID,
             new_message=content,
         ):
+            author = getattr(event, "author", None)
+            if author in self._AGENT_STATUS_LABELS:
+                self._notify_status(on_status, self._AGENT_STATUS_LABELS[author], author)
+            if event.content and event.content.parts:
+                for part in event.content.parts:
+                    fc = getattr(part, "function_call", None)
+                    if fc is None:
+                        continue
+                    fc_name = getattr(fc, "name", "")
+                    fc_args = getattr(fc, "args", None) or {}
+                    if fc_name == "transfer_to_agent":
+                        target = fc_args.get("agent_name")
+                        if target in self._AGENT_STATUS_LABELS:
+                            self._notify_status(on_status, self._AGENT_STATUS_LABELS[target], target)
+                        elif target:
+                            self._notify_status(on_status, f"Calling {target}…", target)
+                    elif fc_name == "summarize_document":
+                        self._notify_status(on_status, "Reading document…", "notes_agent")
             if event.is_final_response() and event.content and event.content.parts:
                 text_parts = [
                     part.text for part in event.content.parts if getattr(part, "text", None)
@@ -543,7 +596,7 @@ class BuddyApp:
         is_coordinator = agent_name == self._root_agent.name
         return await self._fail_over(llm_request, error, is_coordinator)
 
-    def ask(self, message, files=None):
+    def ask(self, message, files=None, on_status=None):
         """Send a user message (and optional file paths) through the ADK coordinator."""
         self._saves_at_turn_start = self._workspace.save_count
         try:
@@ -584,15 +637,26 @@ class BuddyApp:
                 )
 
             loop = self._get_event_loop()
-            reply = loop.run_until_complete(
+            task = loop.create_task(
                 asyncio.wait_for(
-                    self._run_turn(prompt_text),
+                    self._run_turn(prompt_text, on_status=on_status),
                     timeout=self.TURN_TIMEOUT_SECONDS,
                 )
             )
+            try:
+                reply = loop.run_until_complete(task)
+            except KeyboardInterrupt:
+                task.cancel()
+                try:
+                    loop.run_until_complete(task)
+                except (asyncio.CancelledError, KeyboardInterrupt):
+                    pass
+                raise
             # Normally a switch note is already in the reply; this catches the rest.
             leftover = self._take_notices()
             return f"{leftover}\n\n{reply}" if leftover else reply
+        except KeyboardInterrupt:
+            raise
         except BuddyError as exc:
             return str(exc)
         except Exception as exc:
