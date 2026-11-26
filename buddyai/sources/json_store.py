@@ -100,6 +100,7 @@ class JsonStore(DataSource):
 
     def save_all(self, items):
         """Atomically save all local work items across the four JSON files."""
+        items = list(items)
         tasks = []
         meetings = []
         reminders = []
@@ -118,6 +119,9 @@ class JsonStore(DataSource):
                 raise DataSourceError(
                     f"Unsupported item type '{type(item).__name__}' for JsonStore."
                 )
+
+        # Assumption: the loop above sent every item to exactly one of the four files.
+        assert len(tasks) + len(meetings) + len(reminders) + len(notes) == len(items)
 
         self._atomic_write(self._file_path(self.TASKS_FILE), tasks)
         self._atomic_write(self._file_path(self.MEETINGS_FILE), meetings)
