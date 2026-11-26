@@ -1,0 +1,82 @@
+[
+  {
+    "type": "task",
+    "item_id": "task-demo01",
+    "title": "Submit thesis draft to adviser",
+    "created_at": "2026-11-27T09:00:00+08:00",
+    "source": "local",
+    "due_date": "2026-11-29T17:00:00+08:00",
+    "priority": 3,
+    "status": "open"
+  },
+  {
+    "type": "task",
+    "item_id": "task-demo02",
+    "title": "Prepare slides for the final defense",
+    "created_at": "2026-11-27T09:00:00+08:00",
+    "source": "local",
+    "due_date": "2026-11-28T12:00:00+08:00",
+    "priority": 3,
+    "status": "open"
+  },
+  {
+    "type": "task",
+    "item_id": "task-demo03",
+    "title": "Return library books",
+    "created_at": "2026-11-27T09:00:00+08:00",
+    "source": "local",
+    "due_date": "2026-11-26T17:00:00+08:00",
+    "priority": 1,
+    "status": "open"
+  },
+  {
+    "type": "task",
+    "item_id": "task-demo04",
+    "title": "Email Prof. Reyes about the consultation",
+    "created_at": "2026-11-27T09:00:00+08:00",
+    "source": "local",
+    "due_date": "2026-11-27T16:00:00+08:00",
+    "priority": 2,
+    "status": "open"
+  },
+  {
+    "type": "task",
+    "item_id": "task-demo05",
+    "title": "Buy printer paper",
+    "created_at": "2026-11-27T09:00:00+08:00",
+    "source": "local",
+    "due_date": null,
+    "priority": 1,
+    "status": "open"
+  },
+  {
+    "type": "task",
+    "item_id": "task-demo06",
+    "title": "Finish OOP lab exercise",
+    "created_at": "2026-11-27T09:00:00+08:00",
+    "source": "local",
+    "due_date": "2026-11-26T17:00:00+08:00",
+    "priority": 2,
+    "status": "done"
+  },
+  {
+    "type": "task",
+    "item_id": "task-demo07",
+    "title": "Book a room for the group meeting",
+    "created_at": "2026-11-27T09:00:00+08:00",
+    "source": "upload",
+    "due_date": "2026-11-30T17:00:00+08:00",
+    "priority": 2,
+    "status": "proposed"
+  },
+  {
+    "type": "task",
+    "item_id": "task-demo08",
+    "title": "Share the meeting notes with the team",
+    "created_at": "2026-11-27T09:00:00+08:00",
+    "source": "upload",
+    "due_date": null,
+    "priority": 2,
+    "status": "proposed"
+  }
+]

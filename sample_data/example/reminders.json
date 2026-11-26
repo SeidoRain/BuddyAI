@@ -1,0 +1,38 @@
+[
+  {
+    "type": "reminder",
+    "item_id": "rem-demo01",
+    "title": "Bring the printed thesis draft",
+    "created_at": "2026-11-27T09:00:00+08:00",
+    "source": "local",
+    "remind_at": "2026-11-27T08:00:00+08:00",
+    "repeat": "none"
+  },
+  {
+    "type": "reminder",
+    "item_id": "rem-demo02",
+    "title": "Back up the thesis folder",
+    "created_at": "2026-11-27T09:00:00+08:00",
+    "source": "local",
+    "remind_at": "2026-11-27T20:00:00+08:00",
+    "repeat": "none"
+  },
+  {
+    "type": "reminder",
+    "item_id": "rem-demo03",
+    "title": "Review tomorrow's plan",
+    "created_at": "2026-11-27T09:00:00+08:00",
+    "source": "local",
+    "remind_at": "2026-11-27T21:00:00+08:00",
+    "repeat": "daily"
+  },
+  {
+    "type": "reminder",
+    "item_id": "rem-demo04",
+    "title": "Weekly progress report",
+    "created_at": "2026-11-27T09:00:00+08:00",
+    "source": "local",
+    "remind_at": "2026-11-20T17:30:00+08:00",
+    "repeat": "weekly"
+  }
+]

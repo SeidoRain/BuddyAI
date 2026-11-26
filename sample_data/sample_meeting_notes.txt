@@ -1,0 +1,24 @@
+Thesis Group Weekly Meeting Notes
+Date: November 26, 2026
+Location: Room 204, Engineering Building
+Attendees: Carlo Mendoza (lead), Nina Santos, Marco Cruz, Elena Ramos
+
+Agenda
+1. Review of Chapter 3 methodology and class diagram updates
+2. Preparation for the practice defense next week
+3. Equipment and printed materials checklist
+
+Key Decisions
+- The class diagram is frozen after today so the slides and technical report stay consistent.
+- The live demonstration will use local sample data first so it still works if room Wi-Fi drops.
+- Each member will present their own module for two minutes during the code walk-through.
+- Questions on testing and persistence will be handled together during the Q&A segment.
+
+Action Items
+1. Carlo Mendoza: Print three bound copies of the updated thesis draft and submit one to Prof. Reyes by Friday at 5:00 PM.
+2. Nina Santos: Reserve Study Room B for the practice defense rehearsal by Thursday at 3:00 PM.
+3. Marco Cruz: Upload the revised slide deck and demo checklist to the shared group folder by Saturday at 12:00 PM.
+
+Notes for Next Meeting
+- Bring the feedback sheet from Prof. Reyes (reyes@example.edu).
+- Time the full presentation to make sure it fits within 25 minutes.

@@ -9,3 +9,4 @@ buddy_agent/.env
 .adk/
 *.log
 memory.md
+sample_data/generated/
