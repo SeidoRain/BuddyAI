@@ -22,15 +22,15 @@ class BuddyCompleter(Completer):
         if not text.startswith("/"):
             return
 
-        if text.lower().startswith("/file "):
-            remainder = text[6:]
-            sub_doc = Document(text=remainder, cursor_position=len(remainder))
-            for completion in self._path_completer.get_completions(sub_doc, complete_event):
-                yield completion
-            return
-
-        if " " in text:
-            return
+        for path_prefix in ("/file ", "/calendar "):
+            if text.lower().startswith(path_prefix):
+                remainder = text[len(path_prefix):]
+                sub_doc = Document(text=remainder, cursor_position=len(remainder))
+                for completion in self._path_completer.get_completions(
+                    sub_doc, complete_event
+                ):
+                    yield completion
+                return
 
         prefix = text.lower()
         for cmd, desc in SLASH_COMMANDS:
@@ -47,14 +47,14 @@ class BuddyPrompt:
 
     def __init__(self, get_model_name, interactive=None):
         self._get_model_name = get_model_name
-        self.interactive = (
+        self._interactive = (
             sys.stdin.isatty() and sys.stdout.isatty()
             if interactive is None
             else bool(interactive)
         )
         self._glyphs = glyphs_for(sys.stdout)
         self._session = None
-        if self.interactive:
+        if self._interactive:
             style = Style.from_dict(
                 {
                     "prompt": "fg:#ffffff bold",
@@ -74,6 +74,10 @@ class BuddyPrompt:
                 bottom_toolbar=self._bottom_toolbar,
             )
 
+    @property
+    def interactive(self):
+        return self._interactive
+
     def _bottom_toolbar(self):
         bar = "|" if self._glyphs["rule"] == "-" else "│"
         dot = self._glyphs["dot"]
@@ -83,11 +87,14 @@ class BuddyPrompt:
             f"Ctrl+C cancel {dot} /quit"
         )
 
-    def read_input(self):
-        """Read and strip a single line of user input."""
+    def read_input(self, default=""):
+        """Read and strip a single line of user input, optionally pre-filled."""
         if self._session is not None:
             text = self._session.prompt(
-                [("class:prompt", f"\n{self._glyphs['prompt']} ")]
+                [("class:prompt", f"\n{self._glyphs['prompt']} ")],
+                default=default,
             )
             return text.strip()
+        if default:
+            return default.strip()
         return input("\nYou> ").strip()

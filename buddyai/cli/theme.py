@@ -8,7 +8,13 @@ from rich.theme import Theme
 SLASH_COMMANDS = [
     ("/model", "Switch Gemini model"),
     ("/file", "Attach a PDF, PNG, JPG, or TXT file"),
-    ("/brief", "Show today's daily briefing (instant)"),
+    ("/calendar", "Load or show a calendar (.ics) file"),
+    ("/live", "BuddyAI Live: two-way voice chat (/live barge for headphones)"),
+    ("/voice", "Dictate a message into the text prompt (voice-to-text)"),
+    ("/task", "add | edit | delete a task, no AI call (type /task for the formats)"),
+    ("/meet", "add | move | edit | cancel a meeting, no AI call (type /meet for the formats)"),
+    ("/done", "Mark a task done by id or title, no AI call"),
+    ("/brief", "Show daily briefing: schedule, weather & top 5 PH news"),
     ("/tasks", "Show open tasks & proposals (instant)"),
     ("/status", "Show session & workspace summary"),
     ("/clear", "Clear screen and show header"),
@@ -23,6 +29,14 @@ MODEL_HINTS = {
     "gemini-3.8-flash": "20/day",
     "gemini-4-hydrogen": "20/day",
     "gemini-3.1-flash-lite": "500/day · backup",
+}
+
+# Spinner labels for specialist agents while a chat turn is running.
+AGENT_STATUS_LABELS = {
+    "task_agent": "Checking tasks…",
+    "schedule_agent": "Checking schedule…",
+    "notes_agent": "Working with notes…",
+    "briefing_agent": "Building daily briefing…",
 }
 
 RICH_THEME = Theme(
@@ -52,8 +66,6 @@ RICH_THEME = Theme(
         "markdown.link_url": "cyan",
     }
 )
-
-THEME = RICH_THEME
 
 _UNICODE_GLYPHS = {
     "spark": "✦",
@@ -91,7 +103,7 @@ def glyphs_for(stream=None):
 
 
 def build_mascot(unicode_enabled=True):
-    """Return the Option 2C Hover Visor Bot mascot as styled Rich Text."""
+    """Return the Hover Visor Bot mascot (a small robot face) as styled Rich Text."""
     mascot = Text(no_wrap=True)
     if unicode_enabled:
         mascot.append("    ▄▀▄    \n", style="bold bright_cyan")

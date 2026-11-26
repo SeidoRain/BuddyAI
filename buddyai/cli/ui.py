@@ -16,6 +16,7 @@ from rich.table import Table
 from rich.text import Text
 
 from buddyai.cli.theme import (
+    AGENT_STATUS_LABELS,
     MODEL_HINTS,
     RICH_THEME,
     SLASH_COMMANDS,
@@ -58,8 +59,23 @@ class ThinkingIndicator:
         elapsed = time.monotonic() - self._start
         return Text(f" {label} ({elapsed:.1f}s)", style="cyan")
 
-    def update(self, label, agent=None):
-        """Update the spinner status text and record any specialist agent visited."""
+    @staticmethod
+    def _label_for(stage, agent):
+        if stage == "thinking":
+            return "Thinking…"
+        if stage == "reading_document":
+            return "Reading document…"
+        if stage == "searching_web":
+            return "Searching the web…"
+        if stage == "agent":
+            if agent in AGENT_STATUS_LABELS:
+                return AGENT_STATUS_LABELS[agent]
+            return f"Calling {agent}…" if agent else "Working…"
+        return stage
+
+    def update(self, stage, agent=None):
+        """Update the spinner status text from a plain stage key and record agents."""
+        label = self._label_for(stage, agent) if stage else ""
         with self._lock:
             if label:
                 self._label = label
@@ -104,35 +120,58 @@ class TerminalUI:
     """Handles all Rich/prompt_toolkit rendering for the BuddyAI CLI."""
 
     def __init__(self, console=None, interactive=None):
-        self.interactive = (
+        self._interactive = (
             sys.stdin.isatty() and sys.stdout.isatty()
             if interactive is None
             else bool(interactive)
         )
-        self.console = console or Console(
+        self._console = console or Console(
             theme=RICH_THEME,
             highlight=False,
             no_color=bool(os.environ.get("NO_COLOR")),
         )
-        stream = getattr(self.console, "file", sys.stdout)
+        stream = getattr(self._console, "file", sys.stdout)
         self._unicode = supports_unicode(stream)
-        self.glyphs = glyphs_for(stream)
+        self._glyphs = glyphs_for(stream)
         self._box = box.ROUNDED if self._unicode else box.ASCII
+
+    @property
+    def interactive(self):
+        return self._interactive
+
+    @property
+    def console(self):
+        return self._console
+
+    @property
+    def glyphs(self):
+        return self._glyphs
 
     def thinking_context(self):
         """Return a context manager that displays live agent progress."""
-        return ThinkingIndicator(self.console, self.interactive, self.glyphs)
+        return ThinkingIndicator(self._console, self._interactive, self._glyphs)
+
+    @staticmethod
+    def _workspace_counts(app, now):
+        """Compute current task, proposal, meeting, and note counts once."""
+        return {
+            "open_tasks": len(app.workspace.tasks.list_by_priority(now)),
+            "proposals": len(app.workspace.tasks.list_proposals()),
+            "meetings_today": len(app.workspace.agenda.meetings_on(now)),
+            "notes": len(app.workspace.notebook.list_notes()),
+        }
 
     def render_welcome(self, app):
-        """Render the compact startup welcome card with the Option 2C mascot."""
+        """Render the compact startup welcome card with the Hover Visor Bot mascot."""
         now = app.toolkit.current_time()
-        open_tasks = len(app.workspace.tasks.list_by_priority(now))
-        proposals = len(app.workspace.tasks.list_proposals())
-        meetings_today = len(app.workspace.agenda.meetings_on(now))
-        notes_count = len(app.workspace.notebook.list_notes())
+        counts = self._workspace_counts(app, now)
+        open_tasks = counts["open_tasks"]
+        proposals = counts["proposals"]
+        meetings_today = counts["meetings_today"]
+        notes_count = counts["notes"]
         tz_name = getattr(now.tzinfo, "key", None) or get_timezone_name()
-        dot = self.glyphs["dot"]
-        spark = self.glyphs["spark"]
+        dot = self._glyphs["dot"]
+        spark = self._glyphs["spark"]
 
         count_parts = [
             f"{open_tasks} open task{'s' if open_tasks != 1 else ''}",
@@ -159,7 +198,7 @@ class TerminalUI:
         layout.add_column()
         layout.add_row(build_mascot(unicode_enabled=self._unicode), info)
 
-        self.console.print(
+        self._console.print(
             Panel(
                 layout,
                 box=self._box,
@@ -180,14 +219,14 @@ class TerminalUI:
 
     def render_divider(self):
         """Render a subtle divider between conversation turns."""
-        if self.interactive:
-            self.console.print(Rule(style="border", characters=self.glyphs["rule"]))
+        if self._interactive:
+            self._console.print(Rule(style="border", characters=self._glyphs["rule"]))
 
     def render_buddy_reply(self, text, agents=None, elapsed=None):
         """Render BuddyAI's reply in colored cyan text with Markdown formatting."""
-        spark = self.glyphs["spark"]
-        branch = self.glyphs["branch"]
-        dot = self.glyphs["dot"]
+        spark = self._glyphs["spark"]
+        branch = self._glyphs["branch"]
+        dot = self._glyphs["dot"]
 
         header = Text()
         header.append(f"{spark} BuddyAI", style="buddy.header")
@@ -199,31 +238,46 @@ class TerminalUI:
         if meta:
             header.append(f"   {branch} {f' {dot} '.join(meta)}", style="muted")
 
-        self.console.print()
-        self.console.print(header)
+        self._console.print()
+        self._console.print(header)
         cleaned = (text or "").strip()
         if cleaned:
-            self.console.print(Padding(Markdown(cleaned), (0, 0, 0, 2)))
-        self.console.print()
+            supports_osc8 = (
+                self._console.is_terminal and not self._console.legacy_windows
+            )
+            self._console.print(
+                Padding(
+                    Markdown(cleaned, hyperlinks=supports_osc8),
+                    (0, 0, 0, 2),
+                )
+            )
+            if supports_osc8 and "](http" in cleaned:
+                self._console.print(
+                    Padding(
+                        Text("Tip: Ctrl+Click a headline to open its link.", style="muted"),
+                        (0, 0, 0, 2),
+                    )
+                )
+        self._console.print()
 
     def render_ok(self, text):
-        self.console.print(f"{self.glyphs['ok']} {text}", style="ok")
+        self._console.print(f"{self._glyphs['ok']} {text}", style="ok")
 
     def render_warn(self, text):
-        self.console.print(f"{self.glyphs['warn']} {text}", style="warn")
+        self._console.print(f"{self._glyphs['warn']} {text}", style="warn")
 
     def render_error(self, text):
-        self.console.print(f"{self.glyphs['err']} {text}", style="err")
+        self._console.print(f"{self._glyphs['err']} {text}", style="err")
 
     def render_muted(self, text):
-        self.console.print(text, style="muted")
+        self._console.print(text, style="muted")
 
     def pick_model_interactive(self, app):
         """Show an interactive /model selector (or plain list when non-TTY)."""
         app.sync_model_limits()
         catalog = app.model_catalog
-        if not self.interactive:
-            self.console.print(catalog.describe(), style="buddy.text")
+        if not self._interactive:
+            self._console.print(catalog.describe(), style="buddy.text")
             return None
 
         from prompt_toolkit.application import Application
@@ -242,7 +296,7 @@ class TerminalUI:
             "index": names.index(app.current_model) if app.current_model in names else 0,
             "result": None,
         }
-        prompt_char = self.glyphs["prompt"]
+        prompt_char = self._glyphs["prompt"]
 
         def _render_rows():
             fragments = [
@@ -322,7 +376,7 @@ class TerminalUI:
     def render_help(self):
         """Render the formatted slash-command reference table."""
         table = Table(
-            title=f"{self.glyphs['spark']} Commands",
+            title=f"{self._glyphs['spark']} Commands",
             title_style="buddy.header",
             box=self._box,
             border_style="border",
@@ -332,17 +386,18 @@ class TerminalUI:
         table.add_column("Description", style="buddy.text")
         for cmd, desc in SLASH_COMMANDS:
             table.add_row(cmd, desc)
-        self.console.print(table)
+        self._console.print(table)
 
     def render_status(self, app):
         """Render current session and workspace counts."""
         app.sync_model_limits()
         now = app.toolkit.current_time()
         tz_name = getattr(now.tzinfo, "key", None) or get_timezone_name()
-        open_tasks = len(app.workspace.tasks.list_by_priority(now))
-        proposals = len(app.workspace.tasks.list_proposals())
-        meetings_today = len(app.workspace.agenda.meetings_on(now))
-        notes_count = len(app.workspace.notebook.list_notes())
+        counts = self._workspace_counts(app, now)
+        open_tasks = counts["open_tasks"]
+        proposals = counts["proposals"]
+        meetings_today = counts["meetings_today"]
+        notes_count = counts["notes"]
 
         reason = app.model_catalog.reason_for(app.current_model)
         model_text = app.current_model + (f" ({reason})" if reason else "")
@@ -356,11 +411,20 @@ class TerminalUI:
         grid.add_row("Pending proposals:", str(proposals))
         grid.add_row("Meetings today:", str(meetings_today))
         grid.add_row("Saved notes:", str(notes_count))
+        cal_source = getattr(app, "calendar_source", None)
+        if cal_source is not None:
+            cal_text = (
+                f"{os.path.basename(cal_source.path)} "
+                f"({cal_source.loaded_count} events)"
+            )
+        else:
+            cal_text = "none"
+        grid.add_row("Calendar file:", cal_text)
 
-        self.console.print(
+        self._console.print(
             Panel(
                 grid,
-                title=f"{self.glyphs['spark']} Session Status",
+                title=f"{self._glyphs['spark']} Session Status",
                 title_align="left",
                 box=self._box,
                 border_style="border",
@@ -380,7 +444,7 @@ class TerminalUI:
 
         if open_tasks:
             table = Table(
-                title=f"{self.glyphs['spark']} Open Tasks",
+                title=f"{self._glyphs['spark']} Open Tasks",
                 title_style="buddy.header",
                 box=self._box,
                 border_style="border",
@@ -397,7 +461,7 @@ class TerminalUI:
                     else "-"
                 )
                 table.add_row(task.item_id, task.title, str(task.priority), due_text)
-            self.console.print(table)
+            self._console.print(table)
 
         if proposals:
             prop_table = Table(
@@ -411,26 +475,34 @@ class TerminalUI:
             prop_table.add_column("Title", style="buddy.text")
             for task in proposals:
                 prop_table.add_row(task.item_id, task.title)
-            self.console.print(prop_table)
+            self._console.print(prop_table)
 
-    def render_brief(self, app):
-        """Render today's daily briefing locally with zero API requests."""
-        now = app.toolkit.current_time()
-        briefing = app.briefing_service.build_briefing(now)
-        self.console.print(
-            Panel(
-                Text(briefing.to_text(), style="buddy.text"),
-                title=f"{self.glyphs['spark']} Daily Briefing",
-                title_align="left",
-                box=self._box,
-                border_style="border",
-                padding=(0, 2),
-                expand=False,
+    def render_brief(self, app, target_now=None, weather_at=None, location=None):
+        """Render the daily briefing locally in the same Markdown format as chat replies."""
+        now = target_now if target_now is not None else app.toolkit.current_time()
+        resolved_weather_at = weather_at if weather_at is not None else now
+        if self._interactive:
+            with Status(
+                Text(" Building daily briefing…", style="cyan"),
+                console=self._console,
+                spinner="dots",
+                spinner_style="cyan",
+            ):
+                briefing = app.briefing_service.build_briefing(
+                    now,
+                    location=location,
+                    weather_at=resolved_weather_at,
+                )
+        else:
+            briefing = app.briefing_service.build_briefing(
+                now,
+                location=location,
+                weather_at=resolved_weather_at,
             )
-        )
+        self.render_buddy_reply(briefing.to_text())
 
     def clear_and_reset(self, app):
         """Clear the terminal and redraw the compact welcome card."""
-        if self.interactive:
-            self.console.clear()
+        if self._interactive:
+            self._console.clear()
         self.render_welcome(app)

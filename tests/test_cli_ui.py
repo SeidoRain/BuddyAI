@@ -2,6 +2,7 @@
 
 from datetime import datetime, timedelta
 from io import StringIO
+import logging
 import os
 import tempfile
 import unittest
@@ -15,9 +16,17 @@ from prompt_toolkit.completion import CompleteEvent
 from prompt_toolkit.document import Document
 from rich.console import Console
 
-from buddyai.app import BuddyApp
-from buddyai.cli import BuddyCompleter, RICH_THEME, TerminalUI, build_mascot
+from buddyai.app import BuddyApp, CommandReply
+from buddyai.cli import (
+    BuddyCompleter,
+    CommandRouter,
+    RICH_THEME,
+    TerminalUI,
+    build_mascot,
+)
+from buddyai.exceptions import DataSourceError
 from buddyai.models import Meeting, Task
+from buddyai.web_lookup import WebLookup
 
 MANILA = ZoneInfo("Asia/Manila")
 NOW = datetime(2026, 11, 26, 10, 0, tzinfo=MANILA)
@@ -51,6 +60,7 @@ def _capture_ui(force_terminal=False, no_color=True, interactive=False):
 
 class TestBuddyAppCliHooks(unittest.TestCase):
     def setUp(self):
+        logging.disable(logging.CRITICAL)      # keeps ADK's own warnings out of the test output
         self._tmp = tempfile.TemporaryDirectory()
         self._env = patch.dict(os.environ, {"GOOGLE_API_KEY": "test-key"})
         self._env.start()
@@ -58,6 +68,7 @@ class TestBuddyAppCliHooks(unittest.TestCase):
     def tearDown(self):
         self._env.stop()
         self._tmp.cleanup()
+        logging.disable(logging.NOTSET)
 
     def test_ask_accepts_on_status_and_works_without_it(self):
         app = BuddyApp(
@@ -67,10 +78,10 @@ class TestBuddyAppCliHooks(unittest.TestCase):
         )
         try:
             events = []
-            reply = app.ask("hi", on_status=lambda label, agent=None: events.append((label, agent)))
+            reply = app.ask("hi", on_status=lambda stage, agent=None: events.append((stage, agent)))
             self.assertEqual(reply, "ok from gemini-3.5-flash-lite")
             self.assertGreaterEqual(len(events), 1)
-            self.assertEqual(events[0], ("Thinking…", None))
+            self.assertEqual(events[0], ("thinking", None))
             self.assertEqual(app.ask("hi again"), "ok from gemini-3.5-flash-lite")
         finally:
             app.close()
@@ -98,7 +109,12 @@ class TestTerminalUI(unittest.TestCase):
             data_dir=self._tmp.name,
             model=_StatusTestLlm(model="gemini-3.5-flash-lite"),
             clock=lambda: NOW,
+            web_lookup=WebLookup(fetcher=self._offline_fetcher),
         )
+
+    @staticmethod
+    def _offline_fetcher(url):
+        raise DataSourceError("offline in unit test")
 
     def tearDown(self):
         self.app.close()
@@ -182,14 +198,79 @@ class TestTerminalUI(unittest.TestCase):
         self.assertIn("Review notes", output)
         self.assertIn("Team sync", output)
 
+    def test_render_brief_emits_osc8_clickable_links_on_modern_terminal(self):
+        def _live_fetcher(url):
+            if "geocoding-api.open-meteo.com" in url:
+                return '{"results": [{"name": "Manila", "admin1": "Metro Manila", "country": "Philippines", "latitude": 14.6, "longitude": 120.98}]}'
+            if "api.open-meteo.com" in url:
+                return (
+                    '{"timezone": "Asia/Manila",'
+                    ' "current": {"time": "2026-11-26T10:00", "temperature_2m": 29.0,'
+                    '  "apparent_temperature": 32.0, "relative_humidity_2m": 65,'
+                    '  "weather_code": 1, "wind_speed_10m": 8.0},'
+                    ' "daily": {"time": ["2026-11-26"], "temperature_2m_max": [34.0],'
+                    '  "temperature_2m_min": [25.0], "precipitation_probability_max": [30]}}'
+                )
+            return (
+                '<?xml version="1.0" encoding="UTF-8"?>'
+                '<rss version="2.0"><channel>'
+                '<item><title>Top PH Story - Inquirer</title><link>https://example.com/story1</link><source>Inquirer</source></item>'
+                '</channel></rss>'
+            )
+
+        app = BuddyApp(
+            data_dir=self._tmp.name,
+            model=_StatusTestLlm(model="gemini-3.5-flash-lite"),
+            clock=lambda: NOW,
+            web_lookup=WebLookup(fetcher=_live_fetcher),
+        )
+        try:
+            buf = StringIO()
+            console = Console(
+                file=buf,
+                theme=RICH_THEME,
+                highlight=False,
+                force_terminal=True,
+                color_system="truecolor",
+                legacy_windows=False,
+                width=120,
+            )
+            ui = TerminalUI(console=console, interactive=False)
+            ui.render_brief(app)
+            brief_output = buf.getvalue()
+            self.assertIn("\x1b]8;", brief_output)
+            self.assertIn("https://example.com/story1", brief_output)
+            self.assertIn("Top PH Story - Inquirer", brief_output)
+            self.assertIn("Ctrl+Click", brief_output)
+
+            # Asking in chat renders the exact same Markdown briefing format as /brief.
+            chat_buf = StringIO()
+            chat_console = Console(
+                file=chat_buf,
+                theme=RICH_THEME,
+                highlight=False,
+                force_terminal=True,
+                color_system="truecolor",
+                legacy_windows=False,
+                width=120,
+            )
+            chat_ui = TerminalUI(console=chat_console, interactive=False)
+            chat_ui.render_buddy_reply(app.toolkit.get_daily_briefing()["briefing_text"])
+            self.assertEqual(
+                brief_output.replace("id=", "").split("https://")[1:],
+                chat_buf.getvalue().replace("id=", "").split("https://")[1:],
+            )
+        finally:
+            app.close()
+
     def test_pick_model_interactive_non_tty_lists_models_and_returns_none(self):
         ui, buf = _capture_ui(interactive=False)
         chosen = ui.pick_model_interactive(self.app)
         self.assertIsNone(chosen)
         output = buf.getvalue()
         self.assertIn("1. gemini-3.5-flash-lite", output)
-        self.assertIn("2. gemini-3.6-flash", output)
-        self.assertIn("5. gemini-3.1-flash-lite", output)
+        self.assertIn("2. gemini-3.1-flash-lite", output)
+        self.assertIn("5. gemini-4-hydrogen", output)
 
 
 class TestBuddyCompleter(unittest.TestCase):
@@ -201,8 +282,8 @@ class TestBuddyCompleter(unittest.TestCase):
         self.assertIn("/model", root_matches)
         self.assertIn("/brief", root_matches)
 
-        m_matches = [c.text for c in completer.get_completions(Document("/m"), event)]
-        self.assertEqual(m_matches, ["/model"])
+        mo_matches = [c.text for c in completer.get_completions(Document("/mo"), event)]
+        self.assertEqual(mo_matches, ["/model"])
 
         with tempfile.TemporaryDirectory() as tmpdir:
             sample = os.path.join(tmpdir, "agenda.txt")
@@ -214,6 +295,82 @@ class TestBuddyCompleter(unittest.TestCase):
                 for c in completer.get_completions(Document(f"/file {prefix}"), event)
             ]
             self.assertTrue(any("enda.txt" in text for text in file_matches))
+
+    def test_completes_task_and_meet_but_not_their_arguments(self):
+        completer = BuddyCompleter()
+        event = CompleteEvent()
+
+        for typed, expected in (("/ta", ["/task", "/tasks"]), ("/me", ["/meet"])):
+            matches = [c.text for c in completer.get_completions(Document(typed), event)]
+            self.assertEqual(matches, expected)
+
+        after_command = completer.get_completions(Document("/task add Buy milk"), event)
+        self.assertEqual(list(after_command), [])
+
+
+class TestCommandReplyAndStatusMapping(unittest.TestCase):
+    """Checks CommandReply severity levels and ThinkingIndicator stage-to-label mapping."""
+
+    def setUp(self):
+        logging.disable(logging.CRITICAL)
+        self._tmp = tempfile.TemporaryDirectory()
+        self.app = BuddyApp(
+            data_dir=self._tmp.name,
+            model=_StatusTestLlm(model="gemini-3.5-flash-lite"),
+            clock=lambda: NOW,
+            ics_file="",
+        )
+
+    def tearDown(self):
+        self.app.close()
+        self._tmp.cleanup()
+        logging.disable(logging.NOTSET)
+
+    def test_run_model_command_returns_info_level_when_listing_models(self):
+        reply = self.app.run_model_command("/model")
+        self.assertIsInstance(reply, CommandReply)
+        self.assertEqual(reply.level, "info")
+        self.assertIn("gemini-3.5-flash-lite", reply.text)
+
+    def test_run_model_command_returns_ok_level_on_valid_switch(self):
+        reply = self.app.run_model_command("/model 2")
+        self.assertEqual(reply.level, "ok")
+        self.assertIn("Switched to", reply.text)
+
+    def test_run_model_command_returns_warn_level_for_daily_limited_model(self):
+        self.app._limit_log.record("gemini-3.6-flash")
+        reply = self.app.run_model_command("/model gemini-3.6-flash")
+        self.assertEqual(reply.level, "warn")
+
+    def test_run_model_command_returns_error_level_for_unknown_model(self):
+        reply = self.app.run_model_command("/model nonexistent-xyz")
+        self.assertEqual(reply.level, "error")
+
+    def test_router_renders_model_switch_using_reply_level(self):
+        ui, _ = _capture_ui(interactive=False)
+        router = CommandRouter(self.app, ui)
+        with (
+            patch.object(ui, "render_ok") as mock_ok,
+            patch.object(ui, "render_warn") as mock_warn,
+            patch.object(ui, "render_error") as mock_err,
+        ):
+            router.handle("/model 2")
+            mock_ok.assert_called_once()
+            self.app._limit_log.record("gemini-3.8-flash")
+            router.handle("/model gemini-3.8-flash")
+            mock_warn.assert_called_once()
+            router.handle("/model nonexistent-xyz")
+            mock_err.assert_called_once()
+
+    def test_thinking_indicator_maps_stage_keys_to_ui_labels(self):
+        ui, _ = _capture_ui(interactive=False)
+        with ui.thinking_context() as indicator:
+            indicator.update("agent", "task_agent")
+            self.assertEqual(indicator._label, "Checking tasks…")
+            self.assertEqual(indicator.agents, ["task_agent"])
+            indicator.update("reading_document", "notes_agent")
+            self.assertEqual(indicator._label, "Reading document…")
+            self.assertEqual(indicator.agents, ["task_agent", "notes_agent"])
 
 
 if __name__ == "__main__":
