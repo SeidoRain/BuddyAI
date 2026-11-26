@@ -5,6 +5,7 @@ from buddyai.exceptions import (
     AmbiguousItemError,
     InvalidDueDateError,
     InvalidInputError,
+    ReminderNotFoundError,
     TaskNotFoundError,
 )
 from buddyai.models.reminder import Reminder
@@ -59,6 +60,8 @@ class TaskManager:
             if task not in tasks:
                 tasks.append(task)
         # Every ID was checked above, so no confirm() below can fail halfway.
+        # Assumption: the loop above kept only tasks that are still proposed.
+        assert all(task.status == "proposed" for task in tasks)
         for task in tasks:
             task.confirm()
         return tasks
@@ -72,42 +75,65 @@ class TaskManager:
             raise TaskNotFoundError(f"Task '{key}' was not found.")
         return self._tasks[key]
 
-    def find_task(self, id_or_title):
-        """Find a task by exact ID first, then case-insensitive title among active tasks."""
+    @staticmethod
+    def _match_by_title(candidates, query, kind):
+        """Return the one item whose title matches the query, or None if none do.
+
+        An exact (case-insensitive) title wins over a partial one. Several
+        matches at the same level raise AmbiguousItemError.
+        """
+        query_lower = query.lower()
+        exact_matches = [
+            item for item in candidates if item.title.lower() == query_lower
+        ]
+        partial_matches = [
+            item for item in candidates if query_lower in item.title.lower()
+        ]
+        matches = exact_matches if exact_matches else partial_matches
+        if len(matches) > 1:
+            labels = ", ".join(f"{item.item_id} ({item.title})" for item in matches)
+            raise AmbiguousItemError(
+                f"Multiple {kind} match '{query}': {labels}.",
+                matches=matches,
+            )
+        if matches:
+            return matches[0]
+        return None
+
+    def find_task(self, id_or_title, include_done=False):
+        """Find a task by exact ID first, then by title among active tasks.
+
+        Done tasks are searched by title only when include_done is True and no
+        active task matches.
+        """
         if not isinstance(id_or_title, str) or not id_or_title.strip():
             raise InvalidInputError("Task ID or title cannot be empty.")
         query = id_or_title.strip()
         if query in self._tasks:
             return self._tasks[query]
 
-        query_lower = query.lower()
-        candidates = [
-            task for task in self._tasks.values() if task.status != "done"
-        ]
-        exact_matches = [
-            task for task in candidates if task.title.lower() == query_lower
-        ]
-        if len(exact_matches) == 1:
-            return exact_matches[0]
-        if len(exact_matches) > 1:
-            labels = ", ".join(f"{t.item_id} ({t.title})" for t in exact_matches)
-            raise AmbiguousItemError(
-                f"Multiple tasks match '{query}': {labels}.",
-                matches=exact_matches,
-            )
+        active = [task for task in self._tasks.values() if task.status != "done"]
+        found = self._match_by_title(active, query, "tasks")
+        if found is None and include_done:
+            done = [task for task in self._tasks.values() if task.status == "done"]
+            found = self._match_by_title(done, query, "tasks")
+        if found is None:
+            scope = "task" if include_done else "active task"
+            raise TaskNotFoundError(f"No {scope} found matching '{query}'.")
+        return found
 
-        partial_matches = [
-            task for task in candidates if query_lower in task.title.lower()
-        ]
-        if not partial_matches:
-            raise TaskNotFoundError(f"No active task found matching '{query}'.")
-        if len(partial_matches) > 1:
-            labels = ", ".join(f"{t.item_id} ({t.title})" for t in partial_matches)
-            raise AmbiguousItemError(
-                f"Multiple tasks match '{query}': {labels}.",
-                matches=partial_matches,
-            )
-        return partial_matches[0]
+    def find_reminder(self, id_or_title):
+        """Find a reminder by exact ID first, then by exact or partial title."""
+        if not isinstance(id_or_title, str) or not id_or_title.strip():
+            raise InvalidInputError("Reminder ID or title cannot be empty.")
+        query = id_or_title.strip()
+        if query in self._reminders:
+            return self._reminders[query]
+
+        found = self._match_by_title(self._reminders.values(), query, "reminders")
+        if found is None:
+            raise ReminderNotFoundError(f"No reminder found matching '{query}'.")
+        return found
 
     def update_task(self, task_id, title=None, due_date=None, priority=None, now=None):
         """Validate and apply updates to an existing task."""
@@ -159,7 +185,7 @@ class TaskManager:
         open_tasks = [
             task for task in self._tasks.values() if task.status == "open"
         ]
-        return sorted(
+        ranked = sorted(
             open_tasks,
             key=lambda task: (
                 -task.priority_score(aware_now),
@@ -168,6 +194,10 @@ class TaskManager:
                 task.title.lower(),
             ),
         )
+        # Assumption: ranking only reorders the open tasks; it never adds or drops one.
+        assert len(ranked) == len(open_tasks)
+        assert all(task.status == "open" for task in ranked)
+        return ranked
 
     def list_proposals(self):
         """Return all tasks currently waiting for confirmation."""
@@ -201,9 +231,9 @@ class TaskManager:
         )
 
     def remove_reminder(self, reminder_id):
-        """Remove a reminder by ID."""
+        """Remove a reminder by exact ID or raise ReminderNotFoundError."""
         if not isinstance(reminder_id, str) or reminder_id.strip() not in self._reminders:
-            raise InvalidInputError(f"Reminder '{reminder_id}' was not found.")
+            raise ReminderNotFoundError(f"Reminder '{reminder_id}' was not found.")
         return self._reminders.pop(reminder_id.strip())
 
     def restore(self, item):
