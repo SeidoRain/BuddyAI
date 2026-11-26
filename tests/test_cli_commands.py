@@ -370,6 +370,12 @@ class TestTaskDelete(_RouterTestCase):
         self.assertIn("/task delete <task>", self.output())
         self.assertEqual(self.titles(self.workspace.tasks.list_all_tasks()), ["Write report"])
 
+    def test_a_typed_delete_works_after_a_chat_request_read_untrusted_text(self):
+        # Stands in for an earlier chat message that searched the web or read a file.
+        self.app.toolkit._mark_untrusted_read()
+        self.router.handle("/task delete Write report")
+        self.assertEqual(self.workspace.tasks.list_all_tasks(), [])
+
 
 class TestMeetChanges(_RouterTestCase):
     """Covers /meet move, /meet edit and /meet cancel on two existing meetings."""

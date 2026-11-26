@@ -404,9 +404,12 @@ class CommandRouter:
         return words[0], " ".join(words[1:]).strip()
 
     # --- Direct commands that change data without calling the model ---
+    # A typed command is the user's own action, so each one starts a new request:
+    # text read by an earlier chat message cannot block it.
 
     def _task_command(self, arguments):
         """Handle `/task add`, `/task edit` and `/task delete`."""
+        self._app.toolkit.begin_request()
         subcommand, _, rest = arguments.strip().partition(" ")
         methods = {
             "add": self._task_add,
@@ -460,6 +463,7 @@ class CommandRouter:
 
     def _meet_command(self, arguments):
         """Handle `/meet add`, `/meet move`, `/meet edit` and `/meet cancel`."""
+        self._app.toolkit.begin_request()
         subcommand, _, rest = arguments.strip().partition(" ")
         methods = {
             "add": self._meet_add,
@@ -522,6 +526,7 @@ class CommandRouter:
 
     def _done_command(self, arguments):
         """Handle `/done <task id or title>`."""
+        self._app.toolkit.begin_request()
         task = arguments.strip()
         if not task:
             self._ui.render_warn(self.DONE_USAGE)
