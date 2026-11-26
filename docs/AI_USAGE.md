@@ -1,12 +1,46 @@
 # AI Usage Log
 
-This file records AI-assisted implementation work for IT121AL (BuddyAI Sprint 1).
+This file records the AI-assisted work on BuddyAI for IT121AL (Computer Programming 2). It follows the course format: date, tool, purpose, what the AI suggested, and what the team changed or verified.
 
-- **Date:** 2026-11-24
-- **Tool:** Antigravity (AI coding assistant)
-- **Scope:** Implemented the Sprint 1 architecture, domain classes, persistence layer, ADK agent integration, documentation, and offline unit tests according to the written Sprint 1 brief.
+## Team rule for AI use
 
-## Files Produced with AI Assistance
+AI coding tools were used heavily on this project, mostly to generate the Sprint 1 code from a brief that the team wrote. The rule was that no AI-produced change is kept until a team member has reviewed it and the tests have run. The unit tests run offline against stand-in models, so a passing result comes from running the code and not from a model's statement. Scope decisions, such as dropping the Google services and keeping voice mode for Sprint 2, were made by the team lead and not by a tool. Each team member remains responsible for explaining the code they maintain.
+
+## AI usage log
+
+| Date | AI Tool | Purpose | What AI Suggested | What We Changed/Verified |
+|---|---|---|---|---|
+| 2026-11-24 | Claude Code | Design review of the approved proposal | Keep the coordinator in control and call specialists as delegated sub-agents; make the terminal chat the graded interface; rename Calendar to Agenda; hold suggested tasks as proposals with a confirm step in code; move Google Drive/Docs to stretch | The team lead reviewed each point and accepted them. Recorded as proposal version 2 and its two UML diagrams |
+| 2026-11-24 | Gemini 4 Neon in Antigravity | Sprint 1 implementation from the written brief | Generated the domain classes, managers, `JsonStore`, `BuddyToolkit` (18 tools), five agent profiles, `BuddyApp`, `main.py` and 17 unit tests | Checked against the brief and tested offline. Found and fixed: the time zone was given to the model as "PST"; `/file` paths with spaces were cut; one-off reminders in the past were accepted; free slots and new meetings could be in the past; confirming several proposals was not all-or-nothing. Added 32 single-purpose tests for these fixes |
+| 2026-11-24 | Claude Code | Live testing with a real Gemini key and debugging | Suggested the SDK's built-in retry option for "503 high demand" errors | That option made a busy model hang for minutes, so it was removed. Replaced with a short retry in our own `PatientGemini` class plus a time limit per request and per turn. Verified with tests that use a stand-in model which never answers, and by live runs |
+| 2026-11-24 | Claude Code | Model switching and daily-limit handling | `ModelCatalog`, `ModelLimitLog`, the `/model` command and automatic failover. Its first version only told the user to switch by hand, which was a misreading of the request | The team lead rejected the manual-only behaviour. Automatic switching became the default and the manual mode was kept behind `BUDDYAI_AUTO_SWITCH=0`. Free-tier limits were read from the Google AI Studio rate-limit page. Covered by tests in `test_model_switching.py`, `test_model_limits.py` and `test_uploads_and_failover.py` |
+| 2026-11-26 | Gemini in the Antigravity extension for VS Code | Terminal chat revamp (`buddyai/cli`): automated tests and cleanup | Wrote the automated tests in `tests/test_cli_ui.py` and cleaned up the new terminal interface code | Reviewed the same day against the capstone specification. An unused help-text constant, an unused alias and leftover draft wording were found and removed, and command handling was moved out of `main.py`. The full unittest suite was run |
+| 2026-11-26 | Claude Code | Review against the capstone specification; cleanup; direct commands; UML, proposal v3 and technical documentation drafts; Sprint 2 brief | Found gaps (UML out of date, missing documentation and README sections, AI log format, demo depending on live model calls). Suggested and wrote the `CommandRouter` class, the `/task add`, `/meet add` and `/done` commands, updated diagrams and document drafts | Scope decisions (drop Google services, keep voice, team roles) were made by the team lead. Code changes verified by the unittest suite; documents checked against the code |
+| 2026-11-26 | Gemini 4 Neon in Antigravity | Sprint 2 part A: sample data, reminder briefing fix, corrupt-file startup handling, and dead code removal, from the written Sprint 2 brief | Added `sample_data/make_sample_data.py`, `sample_data/sample_meeting_notes.txt`, `sample_data/example/`, relative path resolution in `buddyai/config.py`, `Reminder.occurrence_on` and `WorkItem.status_note` for same-day passed reminders, `BuddyError` catch at startup in `main.py`, removed `AuthenticationRequiredError`, and added `test_sample_data.py`, `test_main_startup.py`, `test_config.py` | Ran `.\.venv\Scripts\python.exe -m unittest discover -s tests`: 200 tests passed offline with clean output. Generated `sample_data/example/` with `--today 2026-11-27` and verified `AuthenticationRequiredError` has no remaining references in code or tests |
+| 2026-11-26 | Gemini 4 Neon in Antigravity | Sprint 2 part B: read-only iCalendar (.ics) file source and `/calendar` command, from the written Sprint 2 brief | Added `IcsCalendarSource` (`buddyai/sources/ics_calendar_source.py`), `Meeting.SOURCE_CALENDAR_FILE` and `[calendar file]` tag, `Workspace.replace_source` and `remove_source`, `Agenda._refuse_if_external` raising `ReadOnlySourceError`, `BuddyApp.load_calendar`/`unload_calendar`, `/calendar` command and path completion, `sample_calendar.ics` generation, updated UML and backlog, and added `test_ics_calendar_source.py`, `test_calendar_integration.py`, `test_calendar_command.py` | Ran `.\.venv\Scripts\python.exe -m unittest discover -s tests`: 250 tests passed offline with clean output. Fixed one test key (`briefing_text` instead of `text`) caught on the first run. Redrew UML figures and ran the `/calendar` sample flow in the terminal chat |
+| 2026-11-26 | Gemini 4 Neon in Antigravity | Sprint 2 parts A4 and A6: single-purpose test split and small refactors, from the written Sprint 2 brief | Split the six bundled test files (`test_models.py`, `test_managers.py`, `test_storage_and_workspace.py`, `test_toolkit.py`, `test_profiles_and_app.py`, `test_document_reader.py`) into single-purpose tests; added `CommandReply` and `BuddyApp.run_model_command()`, extracted `TerminalUI._workspace_counts()`, and moved spinner status labels into `buddyai/cli/theme.py` | Verified assertion counts before and after splitting all six files (no coverage lost). Fixed one new test assertion where Rich markup consumed `[ok]` in non-Unicode `StringIO` output by asserting directly on `render_ok`/`render_warn`/`render_error`. Ran full suite: 343 tests passed offline with clean output |
+| 2026-11-27 | Gemini 4 Neon in Antigravity | Sprint 2 follow-up: real-time streaming `/voice` transcription and free stdlib weather/web lookup | Upgraded `VoiceTranscriber` (`buddyai/voice/transcriber.py`) to stream 16 kHz PCM live to `gemini-3.5-transcribe-live` (`SMART` mode) with `interim_input_transcription` updates rendered live via Rich `Live` in `CommandRouter._voice_command`; added stdlib-only `WebLookup` (`buddyai/web_lookup.py`) using Open-Meteo, Google News RSS, and Wikipedia wired into `BuddyToolkit` (`get_weather`, `search_web`) and `CoordinatorProfile` after live tests showed Gemini's built-in `google_search` grounding returns `429 RESOURCE_EXHAUSTED` on the free tier | Verified `gemini-3.5-transcribe-live` real-time interim and final events on real speech audio, verified `WebLookup` live weather and news replies through `BuddyApp`, added `tests/test_web_lookup.py` and streaming transcriber tests, and ran full offline suite: 376 tests passed cleanly |
+| 2026-11-27 | Claude Code | Review of the Sprint 2 code; edit and delete tools; typed edit commands; documentation | A live test with a real key found that the model said it had renamed a meeting and set its location when no tool existed for that and nothing changed. Suggested and wrote: `update_meeting`, `list_reminders`, `delete_reminder` and `delete_note` tools, the exceptions `ReminderNotFoundError` and `NoteNotFoundError`, finding a completed task by title, and an honesty rule in every agent's instructions; the typed commands `/task edit`, `/task delete`, `/meet move`, `/meet edit` and `/meet cancel`; reordering the default model list so a per-minute limit moves BuddyAI to the other 500-per-day model first; removing the unused batch recording path from `VoiceTranscriber`. An automated security review then pointed out that the new delete tools sit on agents that read untrusted text (uploaded files, web results, headlines); a guard was added so that a request which read such text cannot delete or cancel anything (`UnsafeDeletionError`). The honesty rule was reworded after a live run because the model repeated it to the user. Updated the README, backlog and notes | Ran the full suite: 518 tests, no failures. Ran the suite with network access blocked: 0 network attempts. Rechecked the new paths live with the real key and a temporary data folder, on `gemini-3.5-flash-lite` and `gemini-3.1-flash-lite`: 11 chat requests, all answered correctly (meeting renamed and location saved; a request for a feature with no tool, adding an attendee, got "BuddyAI cannot do that yet" instead of a false success; reminders listed and deleted by name; a note and a completed task deleted by title; no model switches). README text checked against the code |
+
+## Mistakes the AI tools made and how they were caught
+
+- **Rule gaps in the Sprint 1 code.** The generated code told the agents the time zone as "PST", which a model can read as Pacific time, so "tomorrow" could resolve wrongly. It also accepted one-off reminders in the past, could suggest a free slot in the past, and could save some proposals while failing on others. An offline acceptance run with a scripted stand-in model found these on 2026-11-24, before any live key existed. The fixes (UTC offset in the time line, past-time checks in `TaskManager` and `Agenda`, an all-or-nothing `confirm_all`) are covered by `tests/test_sprint1_fixes.py`.
+- **A suggested retry option froze the chat.** Claude Code suggested the SDK's built-in retry option for "503 high demand" errors. In live testing a message got no answer for over five minutes. The option was removed and replaced by `PatientGemini` (`buddyai/agents/patient_gemini.py`), a time limit per request and per turn, and a move to the next model when one does not respond. The failover test with a model that never answers is in `tests/test_uploads_and_failover.py`.
+- **Model switching was first built the wrong way.** The first version only told the user to switch models by hand, which misread the request. The team lead rejected it in review, and automatic switching became the default.
+- **The first build ran out of free requests after about four messages.** The model was one name fixed for all five agents, and the free tier allowed 20 requests a day for `gemini-4-hydrogen`, while one chat message costs at least four requests. Live testing showed it. `ModelCatalog`, `ModelLimitLog`, automatic switching and a default of `gemini-3.5-flash-lite` (500 a day) fixed it, with tests in `test_model_switching.py` and `test_model_limits.py`.
+- **Leftover code in the terminal interface.** The cleanup review on 2026-11-26 found an unused help-text constant, an unused alias and leftover draft wording, and found that `main.py` had grown into about 200 lines of argument parsing, command dispatch and model-switch handling. The code was removed, command handling moved into the `CommandRouter` class in `buddyai/cli/commands.py`, and `tests/test_cli_commands.py` and the full suite were run.
+- **Test key mismatch and Rich markup in Sprint 2 tests.** During Sprint 2, the first run of `tests/test_calendar_integration.py` failed with `KeyError: 'text'` because `get_daily_briefing` returns `briefing_text`, and a new `CommandReply` router test in `tests/test_cli_ui.py` expected literal `[ok]` text that Rich parsed as a style tag on a non-Unicode `StringIO` console. Both were caught immediately by running the `unittest` suite and fixed in those test files.
+- **Duplicate transcription chunks in ADK live mode.** The Sprint 2 voice spike showed that ADK emits partial `output_transcription` chunks (`finished=False`) followed by a final `finished=True` event containing the full sentence, which would duplicate printed text if concatenated blindly. `VoiceSession._receive_loop` was written to emit `tr.text` directly when `finished=True` and flush the partial buffer only at `turn_complete` if no finished event arrived, covered by `tests/test_voice_session.py`.
+- **PortAudio speaker stream died after first interruption in live voice.** Live user testing found that when laptop speaker echo triggered `event.interrupted`, calling `RawOutputStream.abort()` from the asyncio thread while `write()` was running on a worker thread left PortAudio's output stream broken so subsequent replies printed text with no audio. Replaced `abort()` with thread-safe 40 ms playback slices + a playback token and added default speaker-safe mic gating (`echo_guard=True`), covered by `tests/test_voice_audio_device.py`, `tests/test_voice_session.py`, and a live Windows speaker interrupt-and-resume check.
+- **A meeting rename that never happened.** In a live test on 2026-11-27 the model reported that it had renamed a meeting and set its location, but BuddyAI had no tool for either and nothing changed. The cause was that no tool existed and no rule told the agents not to claim a change they could not confirm. The fix was `update_meeting` and an honesty rule in every agent's instruction (`AgentProfile._honesty_rule()`). A first wording of the rule was repeated to the user by the model in a live run, so it was reworded. It is covered by `tests/test_edit_and_delete.py`, and a live recheck gave "BuddyAI cannot do that yet" for a request that has no tool.
+- **A wrong claim in the Gemini README.** The README written for the Sprint 2 voice work said that `/model` changes the dictation model used by `/voice`. This was not true: `VoiceTranscriber` always uses the fixed Live model `gemini-3.5-transcribe-live`. Code review found it, the unused batch recording path was removed from `VoiceTranscriber`, and the README was corrected.
+- **Delete tools added to agents that read untrusted content.** The follow-up on 2026-11-27 added the delete tools `delete_reminder` and `delete_note` to agents that also read text BuddyAI did not write: the notes agent summarizes uploaded files and the coordinator reads web results and headlines. A file or web page with hidden instructions could have caused a deletion. An automated security review caught it. The fix is a guard in `BuddyToolkit`: `summarize_document`, `search_web` and `get_daily_briefing` mark the request as having read untrusted text, and the four delete and cancel tools then refuse with `UnsafeDeletionError` until the next request. A second automated review found that the first version let text inside a model request (which can come from a file or web page) reset the guard, so a new request is now recognised only by ADK's invocation ID (`BuddyApp._start_request`). It is covered by `tests/test_untrusted_content_guard.py`. One limit remains: a voice session counts as one request, so deletions wait for the text chat after a web search in `/live`.
+
+## Appendix: files produced or changed with AI assistance
+
+### 2026-11-24: Sprint 1 implementation (Antigravity)
+
+Implemented the Sprint 1 architecture, domain classes, persistence layer, ADK agent integration, documentation, and offline unit tests according to the written Sprint 1 brief.
 
 | Path | Purpose |
 |---|---|
@@ -21,21 +55,19 @@ This file records AI-assisted implementation work for IT121AL (BuddyAI Sprint 1)
 | `tests/*` | Offline `unittest` suite covering all domain, storage, toolkit, and ADK profile layers |
 | `README.md`, `docs/AI_USAGE.md`, `SPRINT1_NOTES.md` | Setup guide, AI usage log, and Sprint 1 reviewer notes |
 
-## Design Review, Testing and Fixes
+### 2026-11-24: Design review, testing and fixes (Claude Code)
 
-- **Date:** 2026-11-24
-- **Tool:** Claude Code (AI coding assistant)
-- **Scope:** Reviewed the approved proposal and revised it as version 2, wrote the Sprint 1 implementation brief, tested the Sprint 1 build offline (unit tests, an independent acceptance check, the terminal chat, and the ADK browser chat driven by Playwright with a scripted stand-in model), and fixed the issues found.
+Reviewed the approved proposal and revised it as version 2, wrote the Sprint 1 implementation brief, tested the Sprint 1 build offline (unit tests, an independent acceptance check, the terminal chat, and the ADK browser chat driven by Playwright with a scripted stand-in model), and fixed the issues found.
 
 | Path | Purpose |
 |---|---|
-| `IT121AL_Project_Proposal_BuddyAI_v2.docx` | Revised proposal text, tables and both UML figures |
+| `docs/submission/earlier_versions/IT121AL_Project_Proposal_BuddyAI_v2.docx` | Revised proposal text, tables and both UML figures |
 | `main.py` | `/file` paths with spaces; library tracebacks go to `buddyai.log` |
 | `buddyai/agents/profiles.py` | UTC offset in the time line instead of "PST"; confirmation rule moved to the coordinator |
 | `buddyai/managers/task_manager.py` | `confirm_all` (all-or-nothing); past one-off reminders refused |
 | `buddyai/managers/agenda.py` | No free slots or new meetings in the past; quarter-hour rounding |
 | `buddyai/toolkit.py` | Passes the current time to the rules above |
-| `tests/test_sprint1_fixes.py` | 32 single-purpose tests for the fixes |
+| `tests/test_sprint1_fixes.py` | Single-purpose tests for the fixes (32 when added; 27 now, because the five `/file` path tests moved to `tests/test_cli_commands.py`) |
 | `.gitignore`, `README.md` | Ignore `.adk/` and `*.log`; quick start, model limits and error messages |
 
 Live testing with a real Gemini key followed on the same day (terminal chat and browser chat), and led to these further changes:
@@ -46,10 +78,73 @@ Live testing with a real Gemini key followed on the same day (terminal chat and 
 | `buddyai/app.py`, `buddyai/workspace.py` | Clear replies for daily-limit, rate-limit, busy and timeout errors; a note when part of a request was already saved; a time limit per turn |
 | `setup.bat`, `run_cli.bat`, `run_web.bat` | One-step setup and launchers for both entry points |
 | `buddyai/model_catalog.py`, `buddyai/app.py`, `buddyai/agents/profiles.py`, `buddyai/config.py`, `main.py` | Switching Gemini models from either chat with `/model`; automatic move to the next model when a daily limit is reached |
-| `tests/test_model_switching.py` | 24 tests for the model catalog and switching |
+| `tests/test_model_switching.py` | Tests for the model catalog and switching (24 when added; 33 now) |
 | `buddyai/agents/patient_gemini.py`, `buddyai/app.py`, `buddyai/document_reader.py`, `buddyai/exceptions.py` | Short retry when Gemini is busy; one automatic model switch per message; clear replies for failed model calls in both chats; removed an SDK retry setting that made a busy model hang |
 | `buddyai/agents/profiles.py`, `buddyai/app.py` | Files attached with the browser chat's upload button are saved and read through `DocumentReader` |
-| `tests/test_uploads_and_failover.py` | 19 tests for uploads, retries and failover |
+| `tests/test_uploads_and_failover.py` | Tests for uploads, retries and failover (19 when added; 21 now) |
 | `buddyai/model_limits.py`, `buddyai/app.py`, `buddyai/model_catalog.py`, `buddyai/config.py`, `main.py` | When a model reaches its daily limit, both chats say so and require the user to switch; the limit is remembered between runs |
 | `tests/test_model_limits.py` | 19 tests for the daily-limit notice |
 | `buddyai/app.py`, `buddyai/model_catalog.py`, `buddyai/config.py` | Automatic move to the next best model when one is used up, rate-limited or not responding, answering the same message and telling the user; switching by hand kept; manual-only mode behind `BUDDYAI_AUTO_SWITCH=0` |
+
+### 2026-11-26: Terminal chat revamp, cleanup, direct commands and documents
+
+The team lead built the `buddyai/cli` terminal interface; Gemini in the Antigravity extension for VS Code wrote its automated tests and did a cleanup pass, and the result was reviewed the same day. Claude Code then reviewed the project against the capstone specification and made the changes below. The unittest suite passes (179 tests at the time of writing).
+
+| Path | Purpose |
+|---|---|
+| `tests/test_cli_ui.py` | Automated tests for the terminal interface (Gemini in Antigravity), later adjusted for the cleanup |
+| `buddyai/cli/commands.py` | New `CommandRouter` class: command handling moved out of `main.py`; the `/task add`, `/meet add` and `/done` commands; a warning for an unknown `/command` |
+| `tests/test_cli_commands.py` | 53 tests for the router and the direct commands |
+| `main.py` | Unused `HELP_TEXT` removed; now only sets up the objects and runs the input loop |
+| `buddyai/cli/__init__.py`, `buddyai/cli/input.py`, `buddyai/cli/theme.py`, `buddyai/cli/ui.py` | Cleanup of the unused alias and draft wording; `TerminalUI` state kept in private attributes with read-only properties; command list updated |
+| `buddyai/managers/agenda.py`, `buddyai/managers/task_manager.py`, `buddyai/sources/json_store.py` | A few `assert` statements for internal invariants |
+| `tests/test_model_switching.py`, `tests/test_sprint1_fixes.py`, `tests/test_toolkit.py` | Quiet test output; the `/file` path tests moved to `tests/test_cli_commands.py` |
+| `docs/uml/` | UML figures of the implemented classes and of the proposal, and the script that draws them |
+| `docs/submission/IT121AL_Project_Proposal_BuddyAI_v3.docx` | Updated project proposal (version 3) with three UML figures |
+| `docs/submission/BuddyAI_Technical_Documentation.pdf` | Technical documentation |
+| `docs/BACKLOG.md` | Product backlog and user stories with status |
+| `README.md`, `docs/AI_USAGE.md` | README sections required by the course; this log in the course format |
+
+### 2026-11-26: Sprint 2 implementation (Antigravity)
+
+Implemented Sprint 2 features and quality improvements from the written Sprint 2 brief.
+
+| Path | Purpose |
+|---|---|
+| `sample_data/__init__.py`, `sample_data/make_sample_data.py`, `sample_data/sample_meeting_notes.txt`, `sample_data/example/` | Sample data generator, demo TXT document for `/file`, and fixed-date JSON reference snapshot |
+| `buddyai/config.py`, `.gitignore` | Relative path resolution helper `_resolve_path` for `BUDDYAI_DATA_DIR`; ignore `sample_data/generated/` |
+| `buddyai/models/work_item.py`, `buddyai/models/reminder.py`, `buddyai/briefing.py` | Fixed same-day passed reminder visibility via `occurrence_on()` and polymorphic `status_note()` |
+| `main.py`, `buddyai/exceptions.py` | Catch `BuddyError` on startup for damaged data files; removed unused `AuthenticationRequiredError` |
+| `tests/test_sample_data.py`, `tests/test_main_startup.py`, `tests/test_config.py`, `tests/test_models.py`, `tests/test_storage_and_workspace.py` | Offline unit tests for sample data, corrupt-file startup, path resolution, and reminder briefing rules |
+| `buddyai/sources/ics_calendar_source.py`, `buddyai/sources/__init__.py` | Read-only `IcsCalendarSource` subclass parsing iCalendar (`.ics`) events with stdlib only |
+| `buddyai/models/meeting.py`, `buddyai/workspace.py`, `buddyai/managers/agenda.py`, `buddyai/agents/profiles.py`, `buddyai/app.py`, `buddyai/config.py`, `buddy_agent/.env.example` | `[calendar file]` tag, dynamic source replacement/removal, read-only refusal on external meetings, `BUDDYAI_ICS_FILE` and `load_calendar`/`unload_calendar` |
+| `buddyai/cli/commands.py`, `buddyai/cli/theme.py`, `buddyai/cli/input.py`, `buddyai/cli/ui.py`, `main.py` | `/calendar` command, path completion, Calendar file status row, and startup calendar error warning |
+| `tests/test_ics_calendar_source.py`, `tests/test_calendar_integration.py`, `tests/test_calendar_command.py` | 47 offline unit and integration tests covering `.ics` parsing, conflict/read-only rules, and `/calendar` |
+| `README.md`, `docs/BACKLOG.md`, `docs/uml/build_uml.py` | Updated docs, marked US-07 Done, and redrew UML figures with implemented `IcsCalendarSource` |
+| `tests/test_models.py`, `tests/test_managers.py`, `tests/test_storage_and_workspace.py`, `tests/test_toolkit.py`, `tests/test_profiles_and_app.py`, `tests/test_document_reader.py` | Split all six bundled test files into single-purpose tests with no assertion loss |
+| `buddyai/app.py`, `buddyai/cli/commands.py`, `buddyai/cli/ui.py`, `buddyai/cli/theme.py`, `tests/test_cli_ui.py` | `CommandReply` + `run_model_command`, shared `_workspace_counts`, and spinner labels moved from `BuddyApp` to `theme.py` |
+| `buddyai/voice/__init__.py`, `buddyai/voice/audio_device.py`, `buddyai/voice/voice_session.py`, `buddyai/voice/transcriber.py` | `AudioDevice` ABC, thread-safe `SoundDeviceAudio`, `VoiceSession` (ADK `run_live`, speaker-safe echo guard, interruption), and `VoiceTranscriber` (`/voice` dictation) |
+| `buddyai/agents/profiles.py`, `buddyai/agents/__init__.py`, `buddyai/exceptions.py`, `buddyai/config.py`, `requirements.txt`, `buddy_agent/.env.example` | `VoiceCoordinatorProfile`, `VoiceUnavailableError`, `DEFAULT_VOICE_MODEL` (`gemini-3.8-live`) + `get_voice_model()`, `sounddevice>=0.5` |
+| `tests/test_voice_session.py`, `tests/test_voice_audio_device.py` | 16 offline tests for voice audio loops, interruption, spoken stop, specialist delegation, `/voice`, and lazy `sounddevice` errors |
+| `buddyai/web_lookup.py`, `buddyai/toolkit.py`, `buddyai/agents/profiles.py`, `tests/test_web_lookup.py` | Free stdlib-only `WebLookup` (Open-Meteo weather, Google News RSS, Wikipedia) wired as `get_weather` and `search_web` on `BuddyToolkit` and `CoordinatorProfile` |
+| `docs/BACKLOG.md`, `docs/uml/build_uml.py`, `README.md` | Marked US-10 Done, updated `VoiceSession` to implemented in UML figures, and documented `/live`, `/voice`, and web lookup |
+
+### 2026-11-27: Review and edit/delete follow-up (Claude Code)
+
+Reviewed the Sprint 2 code against its documentation, added the missing edit and delete tools, the typed edit commands and the untrusted-content guard, and updated the documents. The unittest suite passes (518 tests at the time of writing).
+
+| Path | Purpose |
+|---|---|
+| `buddyai/models/meeting.py`, `buddyai/managers/agenda.py` | `Meeting.set_location`, `Agenda.update_meeting` (checks everything before changing anything; calendar-file meetings refused) |
+| `buddyai/managers/task_manager.py`, `buddyai/managers/notebook.py` | `TaskManager.find_reminder`, `find_task(..., include_done=True)`, `Notebook.find_note`; `get_note` and `remove_reminder` raise the new not-found exceptions |
+| `buddyai/exceptions.py` | `ReminderNotFoundError`, `NoteNotFoundError`, `UnsafeDeletionError` |
+| `buddyai/toolkit.py` | Tools `update_meeting`, `list_reminders`, `delete_reminder`, `delete_note`; deletion of completed tasks by title; the untrusted-content guard (`begin_request`, `read_untrusted`) and the untrusted-content note on `search_web` results |
+| `buddyai/agents/profiles.py`, `buddyai/agents/__init__.py` | `AgentProfile._honesty_rule()` in every agent's instruction, new tools on the task, schedule and notes agents, and the coordinator rule about text from web results and files |
+| `buddyai/app.py` | `BuddyApp.ask` and `start_voice_session` start a new request for the guard, and `_start_request` (the coordinator's `before_agent_callback`) does so when ADK's invocation ID changes |
+| `buddyai/cli/commands.py`, `buddyai/cli/theme.py`, `buddyai/cli/ui.py`, `main.py` | Typed commands `/task edit`, `/task delete`, `/meet move`, `/meet edit`, `/meet cancel` and their usage lines; `/brief` arguments |
+| `buddyai/config.py`, `buddy_agent/.env.example` | New default model order; `BUDDYAI_LOCATION` |
+| `buddyai/voice/transcriber.py` | Unused batch recording path removed; only the streaming path to `gemini-3.5-transcribe-live` remains |
+| `tests/test_edit_and_delete.py`, `tests/test_untrusted_content_guard.py` | Single-purpose tests for the edit and delete tools, the honesty rule in every profile, and the no-deletion guard |
+| `tests/test_cli_commands.py`, `tests/test_toolkit.py`, `tests/test_profiles_and_app.py`, `tests/test_storage_and_workspace.py` | Tests for the typed commands, the new tools and profiles, and the guard |
+| `README.md`, `docs/BACKLOG.md`, `docs/AI_USAGE.md`, `SPRINT2_NOTES.md` | Documentation brought in line with the code: US-16 and US-17, commands table, models and settings, limitations |
+| `docs/submission/BuddyAI_Technical_Documentation.pdf`, `docs/submission/IT121AL_Project_Proposal_BuddyAI_v3.docx`, `docs/uml/` | Technical documentation, proposal version 3 and the UML figures regenerated |
