@@ -8,3 +8,4 @@ buddy_agent/.env
 .pytest_cache/
 .adk/
 *.log
+memory.md
