@@ -3,3 +3,4 @@ python-dotenv
 tzdata
 rich>=13.7
 prompt_toolkit>=3.0
+sounddevice>=0.5
