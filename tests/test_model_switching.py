@@ -123,6 +123,7 @@ class TestModelCatalog(unittest.TestCase):
 
 class TestSwitchingInTheApp(unittest.TestCase):
     def setUp(self):
+        logging.disable(logging.CRITICAL)      # keeps ADK's own warnings out of the test output
         self._tmp = tempfile.TemporaryDirectory()
         self._env = patch.dict(
             os.environ,
@@ -137,6 +138,7 @@ class TestSwitchingInTheApp(unittest.TestCase):
         self.app.close()
         self._env.stop()
         self._tmp.cleanup()
+        logging.disable(logging.NOTSET)
 
     def test_all_five_agents_share_one_model_object(self):
         root = self.app.root_agent

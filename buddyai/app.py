@@ -11,6 +11,7 @@ from buddyai.agents.profiles import (
     NotesAgentProfile,
     ScheduleAgentProfile,
     TaskAgentProfile,
+    VoiceCoordinatorProfile,
     make_llm,
 )
 from buddyai.briefing import BriefingService
@@ -19,18 +20,43 @@ from buddyai.config import (
     get_api_key,
     get_auto_switch,
     get_data_dir,
+    get_ics_file,
     get_model,
     get_model_choices,
+    get_voice_model,
 )
 from buddyai.document_reader import DocumentReader
-from buddyai.exceptions import BuddyError
+from buddyai.exceptions import BuddyError, DataSourceError
 from buddyai.model_catalog import ModelCatalog
 from buddyai.model_limits import ModelLimitLog
+from buddyai.sources.ics_calendar_source import IcsCalendarSource
 from buddyai.sources.json_store import JsonStore
 from buddyai.toolkit import BuddyToolkit
+from buddyai.web_lookup import WebLookup
 from buddyai.workspace import Workspace
 
 logger = logging.getLogger(__name__)
+
+
+# Encapsulation: pairs a model-command reply with its display level behind read-only properties.
+class CommandReply:
+    """Result of running a chat command, carrying both message text and severity level."""
+
+    VALID_LEVELS = ("info", "ok", "warn", "error")
+
+    def __init__(self, text, level="info"):
+        if level not in self.VALID_LEVELS:
+            raise ValueError(f"Unknown CommandReply level '{level}'.")
+        self._text = str(text)
+        self._level = level
+
+    @property
+    def text(self):
+        return self._text
+
+    @property
+    def level(self):
+        return self._level
 
 
 # Facade & Composition: assembles all layers and manages one ADK session/event loop.
@@ -51,10 +77,13 @@ class BuddyApp:
         clock=None,
         doc_client=None,
         extra_sources=None,
+        ics_file=None,
+        web_lookup=None,
     ):
         resolved_data_dir = data_dir if data_dir is not None else get_data_dir()
         self._uploads_dir = os.path.join(os.fspath(resolved_data_dir), "uploads")
         resolved_clock = clock if clock is not None else default_clock
+        self._clock = resolved_clock
 
         # One model object is shared by all five agents, so changing its model
         # name switches every agent at once (see switch_model).
@@ -75,9 +104,28 @@ class BuddyApp:
 
         self._workspace = Workspace(sources=sources)
         self._workspace.load()
+
+        self._calendar_source = None
+        self._calendar_error = ""
+        resolved_ics = get_ics_file() if ics_file is None else str(ics_file).strip()
+        if resolved_ics:
+            try:
+                cal_source = IcsCalendarSource(resolved_ics, clock=self._clock)
+                cal_source.fetch_items()
+            except DataSourceError as exc:
+                self._calendar_error = str(exc)
+                logger.warning("Could not load calendar file %s: %s", resolved_ics, exc)
+            else:
+                self._calendar_source = cal_source
+                self._workspace.replace_source(cal_source)
+
         self._workspace.sync()
 
-        self._briefing_service = BriefingService(self._workspace)
+        self._web_lookup = web_lookup if web_lookup is not None else WebLookup()
+        self._briefing_service = BriefingService(
+            self._workspace,
+            web_lookup=self._web_lookup,
+        )
         self._document_reader = DocumentReader(
             model=doc_model,
             client=doc_client,
@@ -88,6 +136,7 @@ class BuddyApp:
             briefing_service=self._briefing_service,
             document_reader=self._document_reader,
             clock=resolved_clock,
+            web_lookup=self._web_lookup,
         )
 
         self._specialists = [
@@ -145,6 +194,32 @@ class BuddyApp:
     def model_catalog(self):
         return self._catalog
 
+    @property
+    def calendar_source(self):
+        return self._calendar_source
+
+    @property
+    def calendar_error(self):
+        return self._calendar_error
+
+    def load_calendar(self, path):
+        """Validate and load a read-only .ics calendar file into the workspace."""
+        abs_path = os.path.abspath(os.path.expanduser(os.fspath(path)))
+        source = IcsCalendarSource(abs_path, clock=self._clock)
+        source.fetch_items()
+        self._workspace.replace_source(source)
+        self._workspace.sync()
+        self._calendar_source = source
+        self._calendar_error = ""
+        return source
+
+    def unload_calendar(self):
+        """Remove the loaded .ics calendar source and re-sync the workspace."""
+        removed = self._workspace.remove_source(IcsCalendarSource.DEFAULT_NAME)
+        self._workspace.sync()
+        self._calendar_source = None
+        return removed
+
     def sync_model_limits(self):
         """Refresh today's daily-limit state in the model catalog."""
         self._sync_limits()
@@ -190,31 +265,40 @@ class BuddyApp:
                 handle.write(data)
         return f"Attached file path to summarize: {os.path.abspath(path)}"
 
-    def handle_command(self, text):
-        """Answer a chat command (/model); return None for an ordinary message.
-
-        Both entry points use this: ask() for the terminal chat, and the
-        coordinator's before-model hook for the ADK browser chat.
-        """
+    def run_model_command(self, text):
+        """Answer a /model command with a CommandReply, or return None for other text."""
         words = (text or "").strip().split(None, 1)
         if not words or words[0].lower() not in ("/model", "/models"):
             return None
         self._sync_limits()
         try:
             if len(words) == 1:
-                return self._catalog.describe()
+                return CommandReply(self._catalog.describe(), "info")
             name = self.switch_model(words[1])
         except BuddyError as exc:
-            return str(exc)
+            return CommandReply(str(exc), "error")
         if self._catalog.reason_for(name) == ModelCatalog.DAILY_LIMIT:
             if not self._auto_switch:
-                return self._switch_required_message()
-            return (
+                return CommandReply(self._switch_required_message(), "warn")
+            return CommandReply(
                 f"Switched to {name}, but it has reached today's free request limit "
                 f"and will not answer until {self._reset_text()}. BuddyAI will move "
-                "to the next usable model when you send a message."
+                "to the next usable model when you send a message.",
+                "warn",
             )
-        return f"Switched to {name}. Your tasks, meetings and notes are unchanged."
+        return CommandReply(
+            f"Switched to {name}. Your tasks, meetings and notes are unchanged.",
+            "ok",
+        )
+
+    def handle_command(self, text):
+        """Answer a chat command (/model); return None for an ordinary message.
+
+        Both entry points use this: ask() for the terminal chat, and the
+        coordinator's before-model hook for the ADK browser chat.
+        """
+        reply = self.run_model_command(text)
+        return None if reply is None else reply.text
 
     def _sync_limits(self):
         """Copy today's 'daily limit reached' list from the log into the catalog."""
@@ -353,20 +437,20 @@ class BuddyApp:
             self._session_ready = True
         return self._runner
 
-    _AGENT_STATUS_LABELS = {
-        "task_agent": "Checking tasks…",
-        "schedule_agent": "Checking schedule…",
-        "notes_agent": "Working with notes…",
-        "briefing_agent": "Building daily briefing…",
-    }
+    _SPECIALIST_NAMES = (
+        "task_agent",
+        "schedule_agent",
+        "notes_agent",
+        "briefing_agent",
+    )
 
     @staticmethod
-    def _notify_status(on_status, label, agent=None):
-        """Safely invoke an optional UI status callback."""
+    def _notify_status(on_status, stage, agent=None):
+        """Safely invoke an optional UI status callback with a plain stage key."""
         if on_status is None:
             return
         try:
-            on_status(label, agent)
+            on_status(stage, agent)
         except Exception:
             pass
 
@@ -378,7 +462,7 @@ class BuddyApp:
             role="user",
             parts=[types.Part(text=prompt_text)],
         )
-        self._notify_status(on_status, "Thinking…", None)
+        self._notify_status(on_status, "thinking", None)
         final_reply = ""
         async for event in runner.run_async(
             user_id=self.USER_ID,
@@ -386,8 +470,8 @@ class BuddyApp:
             new_message=content,
         ):
             author = getattr(event, "author", None)
-            if author in self._AGENT_STATUS_LABELS:
-                self._notify_status(on_status, self._AGENT_STATUS_LABELS[author], author)
+            if author in self._SPECIALIST_NAMES:
+                self._notify_status(on_status, "agent", author)
             if event.content and event.content.parts:
                 for part in event.content.parts:
                     fc = getattr(part, "function_call", None)
@@ -397,12 +481,12 @@ class BuddyApp:
                     fc_args = getattr(fc, "args", None) or {}
                     if fc_name == "transfer_to_agent":
                         target = fc_args.get("agent_name")
-                        if target in self._AGENT_STATUS_LABELS:
-                            self._notify_status(on_status, self._AGENT_STATUS_LABELS[target], target)
-                        elif target:
-                            self._notify_status(on_status, f"Calling {target}…", target)
+                        if target:
+                            self._notify_status(on_status, "agent", target)
                     elif fc_name == "summarize_document":
-                        self._notify_status(on_status, "Reading document…", "notes_agent")
+                        self._notify_status(on_status, "reading_document", "notes_agent")
+                    elif fc_name in ("search_web", "get_weather"):
+                        self._notify_status(on_status, "searching_web", None)
             if event.is_final_response() and event.content and event.content.parts:
                 text_parts = [
                     part.text for part in event.content.parts if getattr(part, "text", None)
@@ -665,11 +749,77 @@ class BuddyApp:
         finally:
             self._saves_at_turn_start = None
 
-    def start_voice_session(self):
-        """Placeholder for Sprint 2 bidirectional voice mode."""
-        raise NotImplementedError(
-            "Voice mode is planned for Sprint 2 and is not available in Sprint 1."
+    def build_voice_agent(self):
+        """Build a fresh coordinator tree using the configured Live model for voice mode."""
+        from google.adk.models import Gemini
+
+        # Plain Gemini (not make_llm) so HTTP request timeouts do not interfere with
+        # the long-lived Live WebSocket connection.
+        voice_llm = Gemini(model=get_voice_model())
+        agent = VoiceCoordinatorProfile(
+            model=voice_llm,
+            toolkit=self._toolkit,
+            specialists=self._specialists,
+        ).build()
+        for sub in agent.sub_agents:
+            sub.on_model_error_callback = self._on_model_error
+        return agent
+
+    def start_voice_session(self, audio_device=None, on_text=None, echo_guard=True):
+        """Create and return a VoiceSession bound to this app's workspace and specialists."""
+        from buddyai.voice import SoundDeviceAudio, VoiceSession
+
+        device = audio_device if audio_device is not None else SoundDeviceAudio()
+        return VoiceSession(
+            self.build_voice_agent(),
+            device,
+            on_text=on_text,
+            echo_guard=echo_guard,
         )
+
+    def transcribe_voice(
+        self,
+        audio_device=None,
+        on_update=None,
+        wait_for_stop=None,
+        live_client=None,
+    ):
+        """Stream speech live to Gemini Live Transcribe on the shared loop and return text."""
+        from buddyai.voice import SoundDeviceAudio, VoiceTranscriber
+
+        device = audio_device if audio_device is not None else SoundDeviceAudio()
+        transcriber = VoiceTranscriber(live_client=live_client)
+        loop = self._get_event_loop()
+        task = loop.create_task(
+            transcriber.stream_and_transcribe_async(
+                device, on_update=on_update, wait_for_stop=wait_for_stop
+            )
+        )
+        try:
+            return loop.run_until_complete(task)
+        except KeyboardInterrupt:
+            task.cancel()
+            try:
+                loop.run_until_complete(task)
+            except (asyncio.CancelledError, KeyboardInterrupt):
+                pass
+            raise
+
+    def run_voice(self, session):
+        """Run a VoiceSession on BuddyApp's shared event loop until stopped or Ctrl+C."""
+        # Share the event loop with ask() so the text model's async HTTP client stays
+        # valid when the user returns to the text chat after voice mode ends.
+        loop = self._get_event_loop()
+        task = loop.create_task(session.run())
+        try:
+            loop.run_until_complete(task)
+        except KeyboardInterrupt:
+            session.stop()
+            task.cancel()
+            try:
+                loop.run_until_complete(task)
+            except (asyncio.CancelledError, KeyboardInterrupt):
+                pass
 
     def close(self):
         """Close the internal asyncio event loop if one was created."""

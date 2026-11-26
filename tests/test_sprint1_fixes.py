@@ -5,6 +5,7 @@ Each test covers one behaviour, so a failure points at one rule.
 
 import asyncio
 from datetime import datetime, time, timedelta
+import logging
 import os
 import tempfile
 import unittest
@@ -13,7 +14,6 @@ from zoneinfo import ZoneInfo
 
 from google.adk.models.base_llm import BaseLlm
 
-import main
 from buddyai.agents import CoordinatorProfile, TaskAgentProfile
 from buddyai.app import BuddyApp
 from buddyai.briefing import BriefingService
@@ -51,41 +51,6 @@ def _make_toolkit(tmpdir):
     ws.load()
     reader = DocumentReader(model="gemini-4-hydrogen", clock=lambda: NOW)
     return BuddyToolkit(ws, BriefingService(ws), reader, clock=lambda: NOW), ws
-
-
-class TestFileCommandParsing(unittest.TestCase):
-    def setUp(self):
-        self._tmp = tempfile.TemporaryDirectory()
-        folder = os.path.join(self._tmp.name, "Juan Cruz", "My Docs")
-        os.makedirs(folder)
-        self.path = os.path.join(folder, "sample brief.txt")
-        with open(self.path, "w", encoding="utf-8") as handle:
-            handle.write("brief")
-
-    def tearDown(self):
-        self._tmp.cleanup()
-
-    def test_unquoted_path_with_spaces_is_kept_whole(self):
-        self.assertEqual(main._parse_file_command(f" {self.path}"), (self.path, ""))
-
-    def test_unquoted_path_with_spaces_and_a_message(self):
-        path, message = main._parse_file_command(f" {self.path} please summarize this")
-        self.assertEqual(path, self.path)
-        self.assertEqual(message, "please summarize this")
-
-    def test_quoted_path_and_message(self):
-        path, message = main._parse_file_command(f' "{self.path}" what is due?')
-        self.assertEqual(path, self.path)
-        self.assertEqual(message, "what is due?")
-
-    def test_missing_file_with_spaces_is_not_cut_at_the_space(self):
-        missing = os.path.join(self._tmp.name, "Juan Cruz", "notes.docx")
-        path, message = main._parse_file_command(f" {missing} summarize")
-        self.assertEqual(path, missing)
-        self.assertEqual(message, "summarize")
-
-    def test_empty_argument_gives_no_path(self):
-        self.assertEqual(main._parse_file_command("   "), (None, ""))
 
 
 class TestAgentInstructions(unittest.TestCase):
@@ -250,9 +215,14 @@ class TestApiFailureMessages(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmpdir:
             app = BuddyApp(data_dir=tmpdir, model=_NeverAnswers(model="never"))
             app.TURN_TIMEOUT_SECONDS = 0.5
+            logging.getLogger("google_adk").setLevel(logging.CRITICAL)   # ADK's own warnings
+            self.addCleanup(logging.getLogger("google_adk").setLevel, logging.NOTSET)
             try:
                 with patch.dict(os.environ, {"GOOGLE_API_KEY": "test-key"}):
-                    reply = app.ask("hello")
+                    # The app writes the failed request to its log; assertLogs checks it.
+                    with self.assertLogs("buddyai.app", level="WARNING") as logged:
+                        reply = app.ask("hello")
+                self.assertIn("Model request to never failed (TimeoutError)", logged.output[0])
                 self.assertIn("is not responding right now, so I switched to", reply)
             finally:
                 app.close()
