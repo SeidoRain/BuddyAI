@@ -21,6 +21,16 @@ class MeetingNotFoundError(BuddyError):
     """Raised when a requested meeting cannot be found."""
 
 
+# Inheritance: raised when a reminder ID or title matches no reminder.
+class ReminderNotFoundError(BuddyError):
+    """Raised when a requested reminder cannot be found."""
+
+
+# Inheritance: raised when a note ID or title matches no note.
+class NoteNotFoundError(BuddyError):
+    """Raised when a requested note cannot be found."""
+
+
 # Encapsulation: stores a copy of matching items behind a read-only property.
 class AmbiguousItemError(BuddyError):
     """Raised when a title lookup matches more than one item."""
@@ -77,6 +87,6 @@ class ReadOnlySourceError(DataSourceError):
     """Raised when a write operation is attempted on a read-only data source."""
 
 
-# Inheritance: defined in Sprint 1 for Sprint 2 external Google authentication.
-class AuthenticationRequiredError(DataSourceError):
-    """Raised when external source sign-in is missing or expired."""
+# Inheritance: raised when voice mode cannot load sounddevice or open audio hardware.
+class VoiceUnavailableError(BuddyError):
+    """Raised when the voice audio package or microphone/speakers are unavailable."""
