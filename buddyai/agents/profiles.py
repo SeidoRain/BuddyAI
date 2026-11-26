@@ -65,9 +65,9 @@ class AgentProfile(ABC):
     @staticmethod
     def _honesty_rule():
         return (
-            "Say a change was made only when a tool returned status 'success' for "
-            "that exact change; if no tool can do what was asked, say BuddyAI "
-            "cannot do that yet."
+            "Report a change as done only when a tool returned status 'success' "
+            "for that exact change, and describe it in your own words. If no tool "
+            "can do what was asked, say BuddyAI cannot do that yet."
         )
 
     @abstractmethod
