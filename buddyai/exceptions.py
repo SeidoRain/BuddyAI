@@ -72,6 +72,11 @@ class SchedulingConflictError(BuddyError):
         return self._suggested_start
 
 
+# Inheritance: raised when a deletion is asked for in a request that read untrusted text.
+class UnsafeDeletionError(BuddyError):
+    """Raised when a file, web results or headlines could have steered a deletion."""
+
+
 # Inheritance: raised when a document path has an unsupported file extension.
 class UnsupportedFileTypeError(BuddyError):
     """Raised when a file is not a supported PDF, PNG, JPG, or TXT file."""

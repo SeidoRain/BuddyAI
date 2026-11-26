@@ -19,6 +19,7 @@ from buddyai.exceptions import (
     ReminderNotFoundError,
     SchedulingConflictError,
     TaskNotFoundError,
+    UnsafeDeletionError,
     UnsupportedFileTypeError,
 )
 from buddyai.models import Meeting, Note, Reminder, Task
@@ -46,6 +47,7 @@ class TestExceptionHierarchy(unittest.TestCase):
             MeetingNotFoundError,
             ReminderNotFoundError,
             NoteNotFoundError,
+            UnsafeDeletionError,
             AmbiguousItemError,
             InvalidDueDateError,
             InvalidInputError,

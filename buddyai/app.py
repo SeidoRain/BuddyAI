@@ -161,6 +161,9 @@ class BuddyApp:
         # coordinator's next reply, which carries them to the user.
         self._root_agent.after_model_callback = self._attach_notices
         self._pending_notices = []
+        # The browser chat gives no "new message" signal, so a change in the
+        # newest user text is what starts a new request there.
+        self._last_request_text = None
         self._startup_note = ""
         self._saves_at_turn_start = None
         self._last_failed_invocation = None
@@ -364,6 +367,9 @@ class BuddyApp:
         In that case BuddyAI first moves to the next best model, unless
         automatic switching is off or no model is left.
         """
+        if text != self._last_request_text:
+            self._last_request_text = text
+            self._toolkit.begin_request()
         reply = self.handle_command(text)
         if reply is not None:
             return reply
@@ -683,6 +689,7 @@ class BuddyApp:
     def ask(self, message, files=None, on_status=None):
         """Send a user message (and optional file paths) through the ADK coordinator."""
         self._saves_at_turn_start = self._workspace.save_count
+        self._toolkit.begin_request()
         try:
             if not isinstance(message, str):
                 raise BuddyError("Message must be text.")
@@ -770,6 +777,8 @@ class BuddyApp:
         from buddyai.voice import SoundDeviceAudio, VoiceSession
 
         device = audio_device if audio_device is not None else SoundDeviceAudio()
+        # One voice session counts as one request for the untrusted-content guard.
+        self._toolkit.begin_request()
         return VoiceSession(
             self.build_voice_agent(),
             device,
