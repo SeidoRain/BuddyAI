@@ -103,7 +103,7 @@ As a user, I want to talk to BuddyAI by voice so that I can use it hands-free.
 - `/live` starts a `VoiceSession` (`buddyai/voice/voice_session.py`) over ADK `Runner.run_live` using `VoiceCoordinatorProfile` and a Gemini Live model (`gemini-3.8-live` by default), delegating requests to the same four specialists and `Workspace` (`tests/test_voice_session.py`).
 - `AudioDevice` and `SoundDeviceAudio` (`buddyai/voice/audio_device.py`) stream 16 kHz microphone input and 24 kHz speaker output in thread-safe 40 ms slices, raising `VoiceUnavailableError` cleanly if `sounddevice` or hardware is missing (`tests/test_voice_audio_device.py`).
 - `/live` enables speaker-safe mic gating by default (Space/Enter to interrupt playback) and `/live barge` enables full-duplex voice barge-in with headphones; saying `"stop"` or pressing Ctrl+C returns cleanly to text chat (`tests/test_voice_session.py`).
-- `/voice` (`VoiceTranscriber` in `buddyai/voice/transcriber.py`) records speech and pre-fills the transcribed text directly into the regular chat prompt for review/editing before sending (`tests/test_voice_session.py`).
+- `/voice` (`VoiceTranscriber` in `buddyai/voice/transcriber.py`) streams speech live to a fixed transcription model (`gemini-3.5-transcribe-live`) and pre-fills the transcribed text directly into the regular chat prompt for review/editing before sending (`tests/test_voice_session.py`).
 
 ### US-11: Ask about a Drive file or Google Doc
 
