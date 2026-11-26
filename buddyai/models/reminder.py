@@ -1,6 +1,6 @@
 """Reminder work item supporting one-off, daily, and weekly schedules."""
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from buddyai.config import ensure_aware, parse_stored_datetime
 from buddyai.exceptions import InvalidInputError
@@ -67,13 +67,30 @@ class Reminder(WorkItem):
             candidate = candidate + timedelta(days=7)
         return candidate
 
+    def occurrence_on(self, day, tz):
+        """Return the aware datetime when this reminder fires on day in tz, or None."""
+        first = self._remind_at.astimezone(tz)
+        gap = (day - first.date()).days
+        if gap < 0:
+            return None
+        if self._repeat == "none":
+            return datetime.combine(day, first.timetz()) if gap == 0 else None
+        if self._repeat == "daily":
+            return datetime.combine(day, first.timetz())
+        return datetime.combine(day, first.timetz()) if gap % 7 == 0 else None
+
     def is_due(self, now):
-        """Return True if the next occurrence falls on the given day."""
+        """Return True if this reminder fires on the given day."""
         aware_now = ensure_aware(now, error_cls=InvalidInputError)
-        occurrence = self.next_occurrence(aware_now)
-        if occurrence is None:
-            return False
-        return occurrence.astimezone(aware_now.tzinfo).date() == aware_now.date()
+        return self.occurrence_on(aware_now.date(), aware_now.tzinfo) is not None
+
+    def status_note(self, now):
+        """Return 'time has passed' if today's reminder time is before now."""
+        aware_now = ensure_aware(now, error_cls=InvalidInputError)
+        occurrence = self.occurrence_on(aware_now.date(), aware_now.tzinfo)
+        if occurrence is not None and occurrence < aware_now:
+            return "time has passed"
+        return ""
 
     def priority_score(self, now):
         """Return 20 when the reminder occurs today, otherwise 0."""

@@ -67,6 +67,10 @@ class WorkItem(ABC):
     def priority_score(self, now):
         """Return an integer urgency score relative to the given current time."""
 
+    def status_note(self, now):
+        """Return a short note to show next to the item in a briefing, or an empty string."""
+        return ""
+
     def to_dict(self):
         """Serialize base WorkItem fields into a dictionary."""
         return {
