@@ -10,17 +10,21 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENV_FILE = os.path.join(PROJECT_ROOT, "buddy_agent", ".env")
 DEFAULT_MODEL = "gemini-3.5-flash-lite"
 FALLBACK_MODEL = "gemini-3.6-flash"
+DEFAULT_VOICE_MODEL = "gemini-3.8-live"
 DEFAULT_TIMEZONE = "Asia/Manila"
+DEFAULT_WEATHER_LOCATION = "Manila"
 # Models BuddyAI may use, in order. When one runs out of free requests
 # BuddyAI moves to the first one in this list that still works, and the user
 # can pick any of them with /model. Free daily limits seen on 2026-11-24:
 # 500 requests for each Flash Lite model, 20 for Hydrogen and the Flash models.
+# The second Flash Lite model comes next, so a per-minute limit on the first
+# moves BuddyAI to the other 500-per-day model, not to a 20-per-day one.
 DEFAULT_MODEL_CHOICES = [
     "gemini-3.5-flash-lite",
+    "gemini-3.1-flash-lite",
     "gemini-3.6-flash",
     "gemini-3.8-flash",
     "gemini-4-hydrogen",
-    "gemini-3.1-flash-lite",
 ]
 # Longest a single request to Gemini may take before it is abandoned, so a call
 # that never answers cannot freeze the chat. The SDK's own retry option is not
@@ -65,16 +69,45 @@ def get_doc_model():
     return value if value else get_model()
 
 
+def get_voice_model():
+    """Return the configured Gemini Live model name for voice mode."""
+    value = os.environ.get("BUDDYAI_VOICE_MODEL", "").strip()
+    return value if value else DEFAULT_VOICE_MODEL
+
+
+def _resolve_path(value):
+    """Resolve a path setting: keep absolute paths, join relative ones to PROJECT_ROOT."""
+    if os.path.isabs(value):
+        return value
+    return os.path.abspath(os.path.join(PROJECT_ROOT, value))
+
+
 def get_data_dir():
     """Return the directory where JSON persistence files are stored."""
     value = os.environ.get("BUDDYAI_DATA_DIR", "").strip()
-    return value if value else os.path.join(PROJECT_ROOT, "data")
+    if not value:
+        return os.path.join(PROJECT_ROOT, "data")
+    return _resolve_path(value)
+
+
+def get_ics_file():
+    """Return the configured iCalendar (.ics) file path, or an empty string."""
+    value = os.environ.get("BUDDYAI_ICS_FILE", "").strip()
+    if not value:
+        return ""
+    return _resolve_path(value)
 
 
 def get_timezone_name():
     """Return the configured IANA timezone name."""
     value = os.environ.get("BUDDYAI_TIMEZONE", "").strip()
     return value if value else DEFAULT_TIMEZONE
+
+
+def get_weather_location():
+    """Return the configured default city or place name for weather briefings."""
+    value = os.environ.get("BUDDYAI_LOCATION", "").strip()
+    return value if value else DEFAULT_WEATHER_LOCATION
 
 
 def get_timezone():
