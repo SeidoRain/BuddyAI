@@ -16,7 +16,7 @@ from prompt_toolkit.document import Document
 from rich.console import Console
 
 from buddyai.app import BuddyApp
-from buddyai.cli import BuddyCompleter, RICH_THEME, TerminalUI
+from buddyai.cli import BuddyCompleter, RICH_THEME, TerminalUI, build_mascot
 from buddyai.models import Meeting, Task
 
 MANILA = ZoneInfo("Asia/Manila")
@@ -110,6 +110,7 @@ class TestTerminalUI(unittest.TestCase):
         output = buf.getvalue()
         self.assertIn("BuddyAI", output)
         self.assertIn("open task", output)
+        self.assertIn("o o", output)
         for hidden_model in (
             "gemini-3.6-flash",
             "gemini-3.8-flash",
@@ -117,6 +118,17 @@ class TestTerminalUI(unittest.TestCase):
             "gemini-3.1-flash-lite",
         ):
             self.assertNotIn(hidden_model, output)
+
+    def test_mascot_supports_unicode_and_ascii_fallback(self):
+        unicode_art = build_mascot(unicode_enabled=True).plain
+        self.assertIn("▄▀▄", unicode_art)
+        self.assertIn("▐█ ▀▀ ▀▀ █▌", unicode_art)
+        self.assertIn("▄▄▄▄▄", unicode_art)
+
+        ascii_art = build_mascot(unicode_enabled=False).plain
+        self.assertIn("/^\\", ascii_art)
+        self.assertIn("|[ o o ]|", ascii_art)
+        self.assertIn("===", ascii_art)
 
     def test_reply_renders_header_trace_and_ansi_color_when_enabled(self):
         colored_ui, colored_buf = _capture_ui(force_terminal=True, no_color=False)

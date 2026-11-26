@@ -2,6 +2,7 @@
 
 import sys
 
+from rich.text import Text
 from rich.theme import Theme
 
 SLASH_COMMANDS = [
@@ -87,3 +88,25 @@ def supports_unicode(stream=None):
 def glyphs_for(stream=None):
     """Return Unicode or ASCII fallback glyphs appropriate for `stream`."""
     return dict(_UNICODE_GLYPHS if supports_unicode(stream) else _ASCII_GLYPHS)
+
+
+def build_mascot(unicode_enabled=True):
+    """Return the Option 2C Hover Visor Bot mascot as styled Rich Text."""
+    mascot = Text(no_wrap=True)
+    if unicode_enabled:
+        mascot.append("    ▄▀▄    \n", style="bold bright_cyan")
+        mascot.append(" ▄███████▄ \n", style="cyan")
+        mascot.append("▐█ ", style="cyan")
+        mascot.append("▀▀ ▀▀", style="bold bright_white")
+        mascot.append(" █▌\n", style="cyan")
+        mascot.append(" ▀█▄▄▄▄▄█▀ \n", style="cyan")
+        mascot.append("   ▄▄▄▄▄   ", style="dim cyan")
+    else:
+        mascot.append("    /^\\    \n", style="bold bright_cyan")
+        mascot.append("  .-----.  \n", style="cyan")
+        mascot.append(" |[ ", style="cyan")
+        mascot.append("o o", style="bold bright_white")
+        mascot.append(" ]| \n", style="cyan")
+        mascot.append("  '-----'  \n", style="cyan")
+        mascot.append("    ===    ", style="dim cyan")
+    return mascot

@@ -15,7 +15,14 @@ from rich.status import Status
 from rich.table import Table
 from rich.text import Text
 
-from buddyai.cli.theme import MODEL_HINTS, RICH_THEME, SLASH_COMMANDS, glyphs_for, supports_unicode
+from buddyai.cli.theme import (
+    MODEL_HINTS,
+    RICH_THEME,
+    SLASH_COMMANDS,
+    build_mascot,
+    glyphs_for,
+    supports_unicode,
+)
 from buddyai.config import get_timezone_name
 from buddyai.model_catalog import ModelCatalog
 
@@ -108,15 +115,16 @@ class TerminalUI:
             no_color=bool(os.environ.get("NO_COLOR")),
         )
         stream = getattr(self.console, "file", sys.stdout)
+        self._unicode = supports_unicode(stream)
         self.glyphs = glyphs_for(stream)
-        self._box = box.ROUNDED if supports_unicode(stream) else box.ASCII
+        self._box = box.ROUNDED if self._unicode else box.ASCII
 
     def thinking_context(self):
         """Return a context manager that displays live agent progress."""
         return ThinkingIndicator(self.console, self.interactive, self.glyphs)
 
     def render_welcome(self, app):
-        """Render the compact startup welcome card without listing models."""
+        """Render the compact startup welcome card with the Option 2C mascot."""
         now = app.toolkit.current_time()
         open_tasks = len(app.workspace.tasks.list_by_priority(now))
         proposals = len(app.workspace.tasks.list_proposals())
@@ -126,30 +134,34 @@ class TerminalUI:
         dot = self.glyphs["dot"]
         spark = self.glyphs["spark"]
 
-        summary_parts = [
-            now.strftime("%a, %b %d"),
-            tz_name,
+        count_parts = [
             f"{open_tasks} open task{'s' if open_tasks != 1 else ''}",
             f"{meetings_today} meeting{'s' if meetings_today != 1 else ''} today",
             f"{notes_count} note{'s' if notes_count != 1 else ''}",
         ]
         if proposals:
-            summary_parts.append(
+            count_parts.append(
                 f"{proposals} proposal{'s' if proposals != 1 else ''}"
             )
 
-        body = Text()
-        body.append(f"{spark} BuddyAI", style="buddy.header")
-        body.append("   Personal Executive Assistant\n", style="muted")
-        body.append(f" {dot} ".join(summary_parts) + "\n", style="muted")
-        body.append(
-            "Type a message, /help for commands, or /model to switch models",
+        info = Text()
+        info.append(f"{spark} BuddyAI", style="buddy.header")
+        info.append(f"  {dot}  Personal Executive Assistant\n", style="muted")
+        info.append(f"{now.strftime('%a, %b %d')} {dot} {tz_name}\n", style="muted")
+        info.append(f" {dot} ".join(count_parts) + "\n\n", style="muted")
+        info.append(
+            "Type a message, /help for commands, or /model to switch",
             style="muted",
         )
 
+        layout = Table.grid(padding=(0, 3))
+        layout.add_column(no_wrap=True)
+        layout.add_column()
+        layout.add_row(build_mascot(unicode_enabled=self._unicode), info)
+
         self.console.print(
             Panel(
-                body,
+                layout,
                 box=self._box,
                 border_style="border",
                 padding=(0, 2),
