@@ -1,8 +1,9 @@
 """BuddyToolkit exposing domain actions as safe ADK tool methods."""
 
-from datetime import datetime, time
+from datetime import datetime
 import logging
 
+from buddyai.briefing import resolve_briefing_window
 from buddyai.config import (
     default_clock,
     ensure_aware,
@@ -21,6 +22,7 @@ from buddyai.models.meeting import Meeting
 from buddyai.models.note import Note
 from buddyai.models.reminder import Reminder
 from buddyai.models.task import Task
+from buddyai.web_lookup import WebLookup
 
 logger = logging.getLogger(__name__)
 
@@ -35,11 +37,19 @@ _PRIORITY_NAMES = {
 class BuddyToolkit:
     """Wraps Workspace, BriefingService, and DocumentReader into safe tool calls."""
 
-    def __init__(self, workspace, briefing_service, document_reader, clock=None):
+    def __init__(
+        self,
+        workspace,
+        briefing_service,
+        document_reader,
+        clock=None,
+        web_lookup=None,
+    ):
         self._workspace = workspace
         self._briefing_service = briefing_service
         self._document_reader = document_reader
         self._clock = clock if clock is not None else default_clock
+        self._web_lookup = web_lookup if web_lookup is not None else WebLookup()
 
     def current_time(self):
         """Return the current timezone-aware datetime from the configured clock."""
@@ -148,7 +158,7 @@ class BuddyToolkit:
         """
         try:
             now = self.current_time()
-            target = self._workspace.tasks.find_task(task)
+            target = self._workspace.tasks.find_task(task, include_done=True)
             new_title = title.strip() if title and title.strip() else None
             new_due = (
                 parse_due_date(due, tz=now.tzinfo) if due and due.strip() else None
@@ -191,9 +201,13 @@ class BuddyToolkit:
             return self._error_response(exc)
 
     def delete_task(self, task: str) -> dict:
-        """Delete a task permanently. `task` is a task ID or title."""
+        """Delete a task permanently, even a completed one.
+
+        Use for tasks only, never for reminders (use delete_reminder).
+        `task` is a task ID or title.
+        """
         try:
-            target = self._workspace.tasks.find_task(task)
+            target = self._workspace.tasks.find_task(task, include_done=True)
             removed = self._workspace.tasks.remove_task(target.item_id)
             self._workspace.save()
             return {
@@ -257,6 +271,35 @@ class BuddyToolkit:
                 "status": "success",
                 "reminder": reminder.to_dict(),
                 "summary": f"Added reminder: {reminder.summarize()}",
+            }
+        except Exception as exc:
+            return self._error_response(exc)
+
+    def list_reminders(self) -> dict:
+        """List all saved reminders, earliest first, with their IDs and repeat setting."""
+        try:
+            reminders = self._workspace.tasks.list_reminders()
+            return {
+                "status": "success",
+                "reminders": [item.to_dict() for item in reminders],
+                "summary": f"Found {len(reminders)} reminder(s).",
+            }
+        except Exception as exc:
+            return self._error_response(exc)
+
+    def delete_reminder(self, reminder: str) -> dict:
+        """Delete a reminder permanently. `reminder` is a reminder ID or title.
+
+        Use this for reminders, not delete_task.
+        """
+        try:
+            target = self._workspace.tasks.find_reminder(reminder)
+            removed = self._workspace.tasks.remove_reminder(target.item_id)
+            self._workspace.save()
+            return {
+                "status": "success",
+                "reminder": removed.to_dict(),
+                "summary": f"Deleted reminder '{removed.title}' ({removed.item_id}).",
             }
         except Exception as exc:
             return self._error_response(exc)
@@ -356,6 +399,34 @@ class BuddyToolkit:
                 "status": "success",
                 "meeting": updated.to_dict(),
                 "summary": f"Rescheduled: {updated.summarize()}",
+            }
+        except Exception as exc:
+            return self._error_response(exc)
+
+    def update_meeting(
+        self,
+        meeting: str,
+        title: str = "",
+        location: str = "",
+    ) -> dict:
+        """Rename a meeting or change its location. Time changes use reschedule_meeting.
+
+        `meeting` is a meeting ID or title. Empty text leaves a field unchanged.
+        """
+        try:
+            target = self._workspace.agenda.find_meeting(meeting)
+            new_title = title.strip() if title and title.strip() else None
+            new_location = location.strip() if location and location.strip() else None
+            if new_title is None and new_location is None:
+                raise InvalidInputError("Provide a new title or location.")
+            updated = self._workspace.agenda.update_meeting(
+                target.item_id, title=new_title, location=new_location
+            )
+            self._workspace.save()
+            return {
+                "status": "success",
+                "meeting": updated.to_dict(),
+                "summary": f"Updated meeting: {updated.summarize()}",
             }
         except Exception as exc:
             return self._error_response(exc)
@@ -481,6 +552,23 @@ class BuddyToolkit:
         except Exception as exc:
             return self._error_response(exc)
 
+    def delete_note(self, note: str) -> dict:
+        """Delete a saved note permanently. `note` is a note ID or title.
+
+        Tasks that were proposed from the note are separate tasks and stay.
+        """
+        try:
+            target = self._workspace.notebook.find_note(note)
+            removed = self._workspace.notebook.remove_note(target.item_id)
+            self._workspace.save()
+            return {
+                "status": "success",
+                "note": removed.to_dict(),
+                "summary": f"Deleted note '{removed.title}' ({removed.item_id}).",
+            }
+        except Exception as exc:
+            return self._error_response(exc)
+
     def summarize_document(self, path: str) -> dict:
         """Summarize a PDF, PNG, JPG, or TXT file into a Note and proposed tasks."""
         try:
@@ -504,30 +592,66 @@ class BuddyToolkit:
 
     # --- Briefing Tool ---
 
-    def get_daily_briefing(self, day: str = "") -> dict:
-        """Generate a summary of due tasks, meetings, and reminders for a day.
+    def get_daily_briefing(
+        self,
+        day: str = "",
+        at_time: str = "",
+        location: str = "",
+    ) -> dict:
+        """Generate a daily briefing with schedule, weather for the requested time, and top 5 Philippine headlines.
 
         `day` uses YYYY-MM-DD, or empty for today.
+        `at_time` uses HH:MM or YYYY-MM-DDTHH:MM (empty uses current time for today).
+        `location` is an optional city/place for weather (empty uses default location).
         """
         try:
             now = self.current_time()
-            if day and day.strip():
-                target_day = parse_date(day)
-                if target_day == now.date():
-                    target_now = now
-                else:
-                    target_now = datetime.combine(
-                        target_day, time(0, 0), tzinfo=now.tzinfo
-                    )
-            else:
-                target_now = now
-            briefing = self._briefing_service.build_briefing(target_now)
+            target_now, weather_at = resolve_briefing_window(
+                now, day=day, at_time=at_time
+            )
+            briefing = self._briefing_service.build_briefing(
+                target_now,
+                location=location or None,
+                weather_at=weather_at,
+            )
             return {
                 "status": "success",
                 "day": briefing.day.isoformat(),
+                "target_time": weather_at.isoformat(),
                 "items": [item.to_dict() for item in briefing.items],
+                "weather": briefing.weather,
+                "weather_error": briefing.weather_error,
+                "headlines": briefing.headlines,
+                "headlines_error": briefing.headlines_error,
                 "briefing_text": briefing.to_text(),
                 "summary": briefing.to_text(),
+            }
+        except Exception as exc:
+            return self._error_response(exc)
+
+    # --- Web Lookup Tools ---
+
+    def get_weather(self, location: str) -> dict:
+        """Look up live weather and today's forecast for a city or place name."""
+        try:
+            weather = self._web_lookup.get_weather(location)
+            return {
+                "status": "success",
+                "weather": weather,
+                "summary": weather["summary"],
+            }
+        except Exception as exc:
+            return self._error_response(exc)
+
+    def search_web(self, query: str) -> dict:
+        """Search live news and reference sources on the web for current information."""
+        try:
+            payload = self._web_lookup.search_web(query)
+            return {
+                "status": "success",
+                "query": payload["query"],
+                "results": payload["results"],
+                "summary": payload["summary"],
             }
         except Exception as exc:
             return self._error_response(exc)

@@ -7,6 +7,7 @@ from buddyai.agents.profiles import (
     NotesAgentProfile,
     ScheduleAgentProfile,
     TaskAgentProfile,
+    VoiceCoordinatorProfile,
 )
 
 __all__ = [
@@ -16,4 +17,5 @@ __all__ = [
     "NotesAgentProfile",
     "ScheduleAgentProfile",
     "TaskAgentProfile",
+    "VoiceCoordinatorProfile",
 ]
