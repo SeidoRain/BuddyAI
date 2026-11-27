@@ -6,6 +6,7 @@ import os
 import re
 
 from buddyai.briefing import resolve_briefing_window
+from buddyai.cli.theme import SLASH_COMMANDS
 from buddyai.config import get_api_key
 from buddyai.exceptions import BuddyError, InvalidInputError
 
@@ -109,8 +110,9 @@ class CommandRouter:
         return self.NOT_A_COMMAND
 
     def _unknown_command_text(self, word):
-        """Say the command is unknown and suggest the closest real one."""
-        close = difflib.get_close_matches(word.lower(), self._commands, n=1, cutoff=0.6)
+        """Say the command is unknown and suggest the closest listed one."""
+        listed = [command for command, _ in SLASH_COMMANDS]
+        close = difflib.get_close_matches(word.lower(), listed, n=1, cutoff=0.6)
         hint = f" Did you mean {close[0]}?" if close else ""
         return f"Unknown command {word}.{hint} Type /help to see the commands."
 

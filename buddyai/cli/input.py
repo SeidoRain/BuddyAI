@@ -1,6 +1,7 @@
 """Prompt handling, slash-command autocomplete, and @path file completion."""
 
 import sys
+import time
 
 from prompt_toolkit import PromptSession
 from prompt_toolkit.completion import Completer, Completion, PathCompleter
@@ -58,10 +59,17 @@ class BuddyCompleter(Completer):
 
 
 class BuddyPrompt:
-    """White user prompt with bottom status bar, history, and TTY fallback."""
+    """White user prompt with a dim model line underneath, history, and TTY fallback."""
 
-    def __init__(self, get_model_name, interactive=None):
+    # How long the line under the prompt says which model BuddyAI switched from.
+    SWITCH_NOTE_SECONDS = 30
+
+    def __init__(self, get_model_name, interactive=None, clock=None):
         self._get_model_name = get_model_name
+        self._clock = clock if clock is not None else time.monotonic
+        self._shown_model = None
+        self._switched_from = ""
+        self._switched_at = None
         self._interactive = (
             sys.stdin.isatty() and sys.stdout.isatty()
             if interactive is None
@@ -74,7 +82,9 @@ class BuddyPrompt:
                 {
                     "prompt": "fg:#ffffff bold",
                     "": "fg:#ffffff",
-                    "bottom-toolbar": "fg:#8a8a8a bg:default",
+                    # prompt_toolkit draws the toolbar in reverse video by
+                    # default, which made it a solid bar; noreverse keeps it dim text.
+                    "bottom-toolbar": "noreverse fg:#6c6c6c bg:default",
                     "completion-menu.completion": "bg:#1e2430 fg:#d8dee9",
                     "completion-menu.completion.current": "bg:#0891b2 fg:#ffffff bold",
                     "completion-menu.meta.completion": "bg:#1e2430 fg:#8a8a8a",
@@ -86,21 +96,32 @@ class BuddyPrompt:
                 completer=BuddyCompleter(),
                 complete_while_typing=True,
                 style=style,
-                bottom_toolbar=self._bottom_toolbar,
+                bottom_toolbar=self.toolbar_text,
+                # Redraw once a second so the switch note goes away on time.
+                refresh_interval=1.0,
             )
 
     @property
     def interactive(self):
         return self._interactive
 
-    def _bottom_toolbar(self):
-        bar = "|" if self._glyphs["rule"] == "-" else "│"
-        dot = self._glyphs["dot"]
+    def toolbar_text(self):
+        """Return the line under the prompt: the model, plus a note after a switch.
+
+        Commands are not listed here: /help and the autocomplete menu show them.
+        """
         model = self._get_model_name()
-        return (
-            f"  {model}  {bar}  /model  @file  /brief  /tasks  /help  {bar}  "
-            f"Ctrl+C cancel {dot} /quit"
-        )
+        now = self._clock()
+        if self._shown_model is not None and model != self._shown_model:
+            self._switched_from = self._shown_model
+            self._switched_at = now
+        self._shown_model = model
+        if (
+            self._switched_at is not None
+            and now - self._switched_at < self.SWITCH_NOTE_SECONDS
+        ):
+            return f"  {model} {self._glyphs['dot']} switched from {self._switched_from}"
+        return f"  {model}"
 
     def read_input(self, default=""):
         """Read and strip a single line of user input, optionally pre-filled."""

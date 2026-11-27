@@ -619,6 +619,10 @@ class TestHelpAndTypos(_RouterTestCase):
         self.router.handle("/tsk add Buy milk")
         self.assertEqual(self.app.asked, [])
 
+    def test_a_typo_is_never_corrected_to_an_unlisted_older_name(self):
+        self.router.handle("/exti")
+        self.assertNotIn("/exit?", self.output())
+
     def test_an_unknown_word_far_from_any_command_gets_no_suggestion(self):
         self.router.handle("/xyzzy")
         self.assertNotIn("Did you mean", self.output())

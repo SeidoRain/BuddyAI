@@ -19,6 +19,7 @@ from rich.console import Console
 from buddyai.app import BuddyApp, CommandReply
 from buddyai.cli import (
     BuddyCompleter,
+    BuddyPrompt,
     CommandRouter,
     RICH_THEME,
     TerminalUI,
@@ -330,6 +331,37 @@ class TestBuddyCompleter(unittest.TestCase):
 
         after_command = completer.get_completions(Document("/task add Buy milk"), event)
         self.assertEqual(list(after_command), [])
+
+
+class TestPromptToolbar(unittest.TestCase):
+    """Checks the dim line under the prompt: the model, and a short note after a switch."""
+
+    def setUp(self):
+        self.model = "gemini-3.5-flash-lite"
+        self.seconds = 0.0
+        self.prompt = BuddyPrompt(
+            lambda: self.model, interactive=False, clock=lambda: self.seconds
+        )
+
+    def test_the_line_shows_only_the_model(self):
+        self.assertEqual(self.prompt.toolbar_text().strip(), "gemini-3.5-flash-lite")
+
+    def test_the_line_lists_no_commands(self):
+        self.assertNotIn("/", self.prompt.toolbar_text())
+
+    def test_a_model_switch_adds_a_note_naming_the_old_model(self):
+        self.prompt.toolbar_text()
+        self.model = "gemini-3.1-flash-lite"
+        text = self.prompt.toolbar_text()
+        self.assertIn("gemini-3.1-flash-lite", text)
+        self.assertIn("switched from gemini-3.5-flash-lite", text)
+
+    def test_the_switch_note_disappears_after_thirty_seconds(self):
+        self.prompt.toolbar_text()
+        self.model = "gemini-3.1-flash-lite"
+        self.prompt.toolbar_text()
+        self.seconds = BuddyPrompt.SWITCH_NOTE_SECONDS + 1
+        self.assertEqual(self.prompt.toolbar_text().strip(), "gemini-3.1-flash-lite")
 
 
 class TestCommandReplyAndStatusMapping(unittest.TestCase):

@@ -734,7 +734,7 @@ class BuddyApp:
                     )
 
             if not prompt_text:
-                return "Please enter a message or attach a file with /file <path>."
+                return "Please enter a message, or attach a file by writing @path in it."
 
             command_reply = self.intercept(prompt_text)
             if command_reply is not None:
