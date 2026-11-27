@@ -104,7 +104,7 @@ class TestFilesAttachedInTheBrowserChat(unittest.TestCase):
 
     def test_an_unsupported_type_is_not_saved(self):
         note = self.app.save_upload(b"PK data", "application/zip", "archive.zip")
-        self.assertIn("can only read PDF, PNG, JPG and TXT", note)
+        self.assertIn("can only read PDF, PNG, JPG, TXT and DOCX", note)
         self.assertFalse(os.path.isdir(self.uploads))
 
     def test_hook_swaps_the_attached_file_for_text_before_the_model_sees_it(self):

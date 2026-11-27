@@ -1,8 +1,10 @@
-"""DocumentReader for summarizing PDF, image, and text files into Notes."""
+"""DocumentReader for summarizing PDF, image, text and Word files into Notes."""
 
 import json
 import os
 import time
+import zipfile
+from xml.etree import ElementTree
 
 from buddyai.config import (
     DOCUMENT_TIMEOUT_SECONDS,
@@ -65,18 +67,24 @@ _PRIORITY_MAP = {
 
 # Composition/Dependency: uses an injectable Gemini client to turn files into Notes.
 class DocumentReader:
-    """Reads PDF, PNG, JPG, and TXT files and extracts summaries and proposals."""
+    """Reads PDF, PNG, JPG, TXT and DOCX files and extracts summaries and proposals."""
 
     BUSY_RETRIES = 2
     BUSY_WAIT_SECONDS = 3
 
+    DOCX_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     SUPPORTED_TYPES = {
         ".pdf": "application/pdf",
         ".png": "image/png",
         ".jpg": "image/jpeg",
         ".jpeg": "image/jpeg",
         ".txt": "text/plain",
+        ".docx": DOCX_TYPE,
     }
+    # Every tag in a Word document's XML starts with this namespace.
+    WORD_NAMESPACE = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+    # A larger document body is refused rather than unpacked into memory.
+    MAX_DOCX_XML_BYTES = 20_000_000
 
     def __init__(self, model=None, client=None, clock=None):
         self._model = model if model else get_doc_model()
@@ -118,6 +126,52 @@ class DocumentReader:
         if not os.path.isfile(cleaned):
             raise InvalidInputError(f"File not found: '{cleaned}'.")
         return os.path.abspath(cleaned), self.SUPPORTED_TYPES[ext]
+
+    def _extract_docx_text(self, path):
+        """Return the text of a Word (.docx) file, one line per paragraph.
+
+        A .docx file is a zip archive whose body text is in word/document.xml.
+        Table cells are paragraphs too, so they come out one per line. Deleted
+        text in tracked changes is stored under another tag and is left out.
+        """
+        name = os.path.basename(path)
+        try:
+            with zipfile.ZipFile(path) as archive:
+                info = archive.getinfo("word/document.xml")
+                if info.file_size > self.MAX_DOCX_XML_BYTES:
+                    raise InvalidInputError(f"'{name}' is too large to read.")
+                xml_bytes = archive.read(info)
+            # Word never writes a DTD here. Refusing one shuts out XML entity
+            # tricks (such as "billion laughs") without an extra package.
+            if b"<!DOCTYPE" in xml_bytes:
+                raise InvalidInputError(f"'{name}' is not a readable Word (.docx) file.")
+            root = ElementTree.fromstring(xml_bytes)
+        except (zipfile.BadZipFile, KeyError, ElementTree.ParseError, OSError) as exc:
+            raise InvalidInputError(
+                f"'{name}' is not a readable Word (.docx) file."
+            ) from exc
+
+        lines = []
+        self._collect_paragraphs(root, lines, [])
+        text = "\n".join(line for line in lines if line)
+        if not text:
+            raise InvalidInputError(f"'{name}' has no text to summarize.")
+        return text
+
+    def _collect_paragraphs(self, node, lines, current):
+        """Walk the Word XML in order, adding each finished paragraph to `lines`."""
+        w = self.WORD_NAMESPACE
+        if node.tag == f"{w}t":
+            current.append(node.text or "")
+        elif node.tag == f"{w}tab":
+            current.append("\t")
+        elif node.tag in (f"{w}br", f"{w}cr"):
+            current.append("\n")
+        for child in node:
+            self._collect_paragraphs(child, lines, current)
+        if node.tag == f"{w}p":
+            lines.append("".join(current).strip())
+            current.clear()
 
     def _get_client(self):
         if self._client is not None:
@@ -184,11 +238,16 @@ class DocumentReader:
             ensure_aware(now) if now is not None else ensure_aware(self._clock())
         )
 
-        try:
-            with open(abs_path, "rb") as handle:
-                file_bytes = handle.read()
-        except OSError as exc:
-            raise InvalidInputError(f"Could not read '{abs_path}': {exc}") from exc
+        if mime_type == self.DOCX_TYPE:
+            # Gemini does not read Word files, so their text is sent instead.
+            file_bytes = self._extract_docx_text(abs_path).encode("utf-8")
+            mime_type = "text/plain"
+        else:
+            try:
+                with open(abs_path, "rb") as handle:
+                    file_bytes = handle.read()
+            except OSError as exc:
+                raise InvalidInputError(f"Could not read '{abs_path}': {exc}") from exc
 
         prompt = (
             "Summarize the attached file into a concise summary, key points, and "

@@ -586,7 +586,7 @@ class TestFileMentions(_RouterTestCase):
         self.assertEqual(self.app.asked, [])
 
     def test_an_unsupported_file_shows_the_error_and_asks_nothing(self):
-        self.router.send(f"Summarize @{os.path.join(self._tmp.name, 'report.docx')}")
+        self.router.send(f"Summarize @{os.path.join(self._tmp.name, 'report.doc')}")
         self.assertIn("UnsupportedFileTypeError", self.output())
         self.assertEqual(self.app.asked, [])
 

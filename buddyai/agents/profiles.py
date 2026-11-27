@@ -367,8 +367,8 @@ class NotesAgentProfile(AgentProfile):
 
     def description(self):
         return (
-            "Saves, searches, and deletes notes, and summarizes PDF, PNG, JPG, or "
-            "TXT files into notes and proposed action items."
+            "Saves, searches, and deletes notes, and summarizes PDF, PNG, JPG, TXT "
+            "or DOCX files into notes and proposed action items."
         )
 
     def instruction(self, context=None):

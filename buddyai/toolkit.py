@@ -604,7 +604,7 @@ class BuddyToolkit:
             return self._error_response(exc)
 
     def summarize_document(self, path: str) -> dict:
-        """Summarize a PDF, PNG, JPG, or TXT file into a Note and proposed tasks."""
+        """Summarize a PDF, PNG, JPG, TXT or DOCX file into a Note and proposed tasks."""
         try:
             self._mark_untrusted_read()
             now = self.current_time()

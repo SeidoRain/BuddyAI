@@ -35,7 +35,7 @@ COMMAND_GROUPS = [
     (
         "Input",
         [
-            ("@path", "Attach a PDF, PNG, JPG or TXT file inside your message"),
+            ("@path", "Attach a PDF, PNG, JPG, TXT or DOCX file inside your message"),
             ("/calendar", "Load or show a calendar (.ics) file"),
             ("/live", "BuddyAI Live: two-way voice chat (/live barge for headphones)"),
             ("/voice", "Dictate a message into the text prompt (voice-to-text)"),

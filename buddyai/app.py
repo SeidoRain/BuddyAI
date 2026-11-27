@@ -264,8 +264,8 @@ class BuddyApp:
         if extension is None:
             return (
                 f"(The user attached {label} of type '{mime_type or 'unknown'}'. "
-                "BuddyAI can only read PDF, PNG, JPG and TXT files, so it was not "
-                "opened. Tell the user this.)"
+                "BuddyAI can only read PDF, PNG, JPG, TXT and DOCX files, so it "
+                "was not opened. Tell the user this.)"
             )
         digest = hashlib.sha1(data).hexdigest()[:8]
         base = os.path.splitext(os.path.basename(name))[0] if name else "upload"

@@ -79,7 +79,7 @@ class UnsafeDeletionError(BuddyError):
 
 # Inheritance: raised when a document path has an unsupported file extension.
 class UnsupportedFileTypeError(BuddyError):
-    """Raised when a file is not a supported PDF, PNG, JPG, or TXT file."""
+    """Raised when a file is not a supported PDF, PNG, JPG, TXT or DOCX file."""
 
 
 # Inheritance: base exception for local and external data source failures.

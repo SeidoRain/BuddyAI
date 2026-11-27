@@ -171,7 +171,7 @@ class TestBuddyAppOffline(unittest.TestCase):
 
     def test_check_file_rejects_an_unsupported_type_before_any_model_request(self):
         with self.assertRaises(UnsupportedFileTypeError):
-            self.app.check_file(os.path.join(self._tmp.name, "report.docx"))
+            self.app.check_file(os.path.join(self._tmp.name, "report.doc"))
 
     def test_ask_with_missing_file_returns_file_not_found(self):
         reply = self.app.ask(
