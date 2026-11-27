@@ -40,10 +40,11 @@ class JsonStore(DataSource):
         filepath = self._file_path(filename)
         if not os.path.exists(filepath):
             return []
+        # utf-8-sig also reads a file that Notepad saved with a byte order mark.
         try:
-            with open(filepath, "r", encoding="utf-8") as handle:
+            with open(filepath, "r", encoding="utf-8-sig") as handle:
                 data = json.load(handle)
-        except (OSError, json.JSONDecodeError) as exc:
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
             raise DataSourceError(
                 f"Failed to read JSON from '{filepath}': {exc}"
             ) from exc
@@ -53,10 +54,29 @@ class JsonStore(DataSource):
             )
         return data
 
+    def _parse_records(self, filename, records, parse):
+        """Turn saved records into items; a bad record raises DataSourceError.
+
+        The error names the file and the record, so the user knows what to fix.
+        """
+        items = []
+        for index, record in enumerate(records, start=1):
+            try:
+                items.append(parse(record))
+            except Exception as exc:
+                label = f"record {index}"
+                if isinstance(record, dict) and isinstance(record.get("item_id"), str):
+                    label += f" (id {record['item_id']})"
+                raise DataSourceError(
+                    f"Could not load {label} in '{self._file_path(filename)}': "
+                    f"{type(exc).__name__}: {exc}"
+                ) from exc
+        return items
+
     def _atomic_write(self, filepath, data):
-        os.makedirs(self._data_dir, exist_ok=True)
         tmp_path = None
         try:
+            os.makedirs(self._data_dir, exist_ok=True)
             with tempfile.NamedTemporaryFile(
                 mode="w",
                 encoding="utf-8",
@@ -88,18 +108,27 @@ class JsonStore(DataSource):
         reminder_records = self._read_records(self.REMINDERS_FILE)
         note_records = self._read_records(self.NOTES_FILE)
 
-        tasks = [Task.from_dict(record) for record in task_records]
+        tasks = self._parse_records(self.TASKS_FILE, task_records, Task.from_dict)
         task_lookup = {task.item_id: task for task in tasks}
-        meetings = [Meeting.from_dict(record) for record in meeting_records]
-        reminders = [Reminder.from_dict(record) for record in reminder_records]
-        notes = [
-            Note.from_dict(record, task_lookup=task_lookup)
-            for record in note_records
-        ]
+        meetings = self._parse_records(
+            self.MEETINGS_FILE, meeting_records, Meeting.from_dict
+        )
+        reminders = self._parse_records(
+            self.REMINDERS_FILE, reminder_records, Reminder.from_dict
+        )
+        notes = self._parse_records(
+            self.NOTES_FILE,
+            note_records,
+            lambda record: Note.from_dict(record, task_lookup=task_lookup),
+        )
         return tasks + meetings + reminders + notes
 
     def save_all(self, items):
-        """Atomically save all local work items across the four JSON files."""
+        """Save all local work items, writing each of the four JSON files atomically.
+
+        Each file is replaced in one step, so a file is never left half
+        written; the four files are four separate writes, not one.
+        """
         items = list(items)
         tasks = []
         meetings = []

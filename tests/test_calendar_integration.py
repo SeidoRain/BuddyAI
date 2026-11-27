@@ -12,7 +12,11 @@ from google.adk.models.base_llm import BaseLlm
 
 from buddyai.agents.profiles import ScheduleAgentProfile
 from buddyai.app import BuddyApp
-from buddyai.exceptions import DataSourceError, ReadOnlySourceError
+from buddyai.exceptions import (
+    DataSourceError,
+    MeetingNotFoundError,
+    ReadOnlySourceError,
+)
 from buddyai.models import Meeting
 from buddyai.sources import IcsCalendarSource, JsonStore
 from buddyai.web_lookup import WebLookup
@@ -198,6 +202,19 @@ class TestCalendarIntegration(unittest.TestCase):
             agenda.find_meeting("Department meeting")
         with self.assertRaises(ReadOnlySourceError):
             agenda.find_meeting("department")
+
+    def test_an_exact_calendar_title_wins_over_part_of_a_local_title(self):
+        self.app.toolkit.schedule_meeting(
+            "Standup prep", "2026-11-28T09:00", "2026-11-28T09:30"
+        )
+        result = self.app.toolkit.cancel_meeting("Standup")
+        self.assertEqual(result["error_type"], "ReadOnlySourceError")
+        local_titles = [m.title for m in self.app.workspace.agenda.list_local_meetings()]
+        self.assertEqual(local_titles, ["Standup prep"])
+
+    def test_get_meeting_refuses_only_an_exact_calendar_id_or_title(self):
+        with self.assertRaises(MeetingNotFoundError):
+            self.app.workspace.agenda.get_meeting("department")
 
     def test_workspace_replace_source_and_remove_source(self):
         ws = Workspace(sources=[JsonStore(self.data_dir)])

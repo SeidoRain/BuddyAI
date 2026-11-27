@@ -133,6 +133,69 @@ class TestJsonStoreRoundTrip(unittest.TestCase):
             self.assertEqual(handle.read(), "{corrupt json")
 
 
+class TestJsonStoreDamagedFiles(unittest.TestCase):
+    """Checks that every kind of damaged data file gives a DataSourceError naming it."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.store = JsonStore(self._tmp.name)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _write(self, filename, data):
+        path = os.path.join(self._tmp.name, filename)
+        with open(path, "wb") as handle:
+            handle.write(data)
+        return path
+
+    def test_a_file_that_is_not_utf8_names_the_file(self):
+        self._write(JsonStore.NOTES_FILE, b'[{"title": "caf\xe9"}]')
+        with self.assertRaises(DataSourceError) as ctx:
+            self.store.fetch_items()
+        self.assertIn("notes.json", str(ctx.exception))
+
+    def test_a_file_saved_with_a_byte_order_mark_loads(self):
+        self._write(JsonStore.TASKS_FILE, b"\xef\xbb\xbf[]")
+        self.assertEqual(self.store.fetch_items(), [])
+
+    def test_a_bad_record_names_the_file_and_the_record(self):
+        record = (
+            b'[{"title": "Read", "created_at": "2026-11-24T10:00:00+08:00",'
+            b' "status": "waiting", "item_id": "task-bad1"}]'
+        )
+        self._write(JsonStore.TASKS_FILE, record)
+        with self.assertRaises(DataSourceError) as ctx:
+            self.store.fetch_items()
+        message = str(ctx.exception)
+        self.assertIn("tasks.json", message)
+        self.assertIn("record 1 (id task-bad1)", message)
+
+    def test_an_unhashable_action_item_id_names_the_notes_file(self):
+        record = (
+            b'[{"title": "Notes", "created_at": "2026-11-24T10:00:00+08:00",'
+            b' "action_item_ids": [["task-1"]]}]'
+        )
+        self._write(JsonStore.NOTES_FILE, record)
+        with self.assertRaises(DataSourceError) as ctx:
+            self.store.fetch_items()
+        self.assertIn("notes.json", str(ctx.exception))
+
+    def test_a_file_with_a_bad_record_is_not_overwritten(self):
+        record = b'[{"title": "Read", "created_at": "not-a-date"}]'
+        path = self._write(JsonStore.TASKS_FILE, record)
+        with self.assertRaises(DataSourceError):
+            self.store.save_item(Task("New", datetime(2026, 11, 24, tzinfo=MANILA)))
+        with open(path, "rb") as handle:
+            self.assertEqual(handle.read(), record)
+
+    def test_saving_when_the_data_folder_is_a_file_raises_data_source_error(self):
+        blocker = self._write("not_a_folder", b"x")
+        store = JsonStore(blocker)
+        with self.assertRaises(DataSourceError):
+            store.save_all([])
+
+
 class TestReadOnlySourceContract(unittest.TestCase):
     """Checks that read-only DataSource subclasses refuse all write methods."""
 

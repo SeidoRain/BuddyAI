@@ -2,6 +2,7 @@
 
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, time
+import logging
 
 from buddyai.config import (
     ensure_aware,
@@ -12,7 +13,16 @@ from buddyai.config import (
 )
 from buddyai.exceptions import BuddyError
 
+logger = logging.getLogger(__name__)
+
 _USE_NOW = object()
+# Characters that Markdown would read as bold, italic, strike-through or code.
+_MARKDOWN_EMPHASIS = "\\*_~`"
+
+
+def _escape_markdown(text):
+    """Put a backslash before emphasis characters, so a title is shown as typed."""
+    return "".join(f"\\{char}" if char in _MARKDOWN_EMPHASIS else char for char in text)
 
 
 def resolve_briefing_window(now, day="", at_time=""):
@@ -122,7 +132,7 @@ class DailyBriefing:
             return ["Nothing due or scheduled for today."]
         lines = []
         for index, item in enumerate(self._items, start=1):
-            line = f"{index}. {item.summarize()}"
+            line = f"{index}. {_escape_markdown(item.summarize())}"
             if self._now is not None:
                 note = item.status_note(self._now)
                 if note:
@@ -198,11 +208,16 @@ class BriefingService:
         self._web_lookup = web_lookup
         self._default_location = (default_location or "").strip() or get_weather_location()
 
+    # The two fetchers below never raise: whatever goes wrong on the web, the
+    # briefing still shows the local schedule and says the part is unavailable.
     def _fetch_weather(self, place, target_weather_at):
         try:
             return self._web_lookup.get_weather(place, at_time=target_weather_at), ""
         except BuddyError as exc:
             return None, str(exc)
+        except Exception:
+            logger.exception("Unexpected error while fetching the weather.")
+            return None, "the weather service sent an unexpected reply"
 
     def _fetch_headlines(self):
         try:
@@ -210,9 +225,12 @@ class BriefingService:
                 limit=self.HEADLINE_COUNT,
                 country=self.HEADLINE_COUNTRY,
             )
-            return payload.get("headlines", []), ""
+            return [dict(item) for item in payload.get("headlines", [])], ""
         except BuddyError as exc:
             return None, str(exc)
+        except Exception:
+            logger.exception("Unexpected error while fetching the headlines.")
+            return None, "the news feed sent an unexpected reply"
 
     def build_briefing(self, now, location=None, weather_at=None, include_live=True):
         """Collect due items, weather summary, and top 5 PH headlines into a DailyBriefing."""

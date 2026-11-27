@@ -3,13 +3,20 @@ rem First-time setup for BuddyAI. Safe to run again: it only does what is missin
 rem run_cli.bat and run_web.bat call this for you.
 cd /d "%~dp0"
 
-if exist ".venv\Scripts\python.exe" goto check_env
+rem installed.txt is written only after the packages installed without an error,
+rem so a failed install is tried again on the next run.
+if exist ".venv\installed.txt" goto check_env
+if exist ".venv\Scripts\python.exe" goto install
 echo Creating the virtual environment and installing packages.
 echo This takes a few minutes the first time...
 python -m venv .venv
 if errorlevel 1 goto no_python
+
+:install
+echo Installing the packages BuddyAI needs...
 ".venv\Scripts\python.exe" -m pip install --quiet -r requirements.txt
 if errorlevel 1 goto install_failed
+echo Packages installed.> ".venv\installed.txt"
 
 :check_env
 if exist "buddy_agent\.env" goto done

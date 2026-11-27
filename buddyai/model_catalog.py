@@ -32,6 +32,7 @@ class ModelCatalog:
     DAILY_LIMIT = "daily limit reached"
     RATE_LIMITED = "per-minute limit reached"
     NOT_RESPONDING = "not responding"
+    NOT_AVAILABLE = "not available for this API key"
 
     def is_available(self, name):
         """Return True unless the model was marked as unusable for now."""
@@ -97,7 +98,8 @@ class ModelCatalog:
                 )
             return candidate
 
-        if text.isdigit():
+        # isdecimal, not isdigit: "²" is a digit, but int() cannot read it.
+        if text.isdecimal():
             position = int(text)
             if 1 <= position <= len(self._names):
                 return self._names[position - 1]

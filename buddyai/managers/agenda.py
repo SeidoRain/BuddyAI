@@ -258,11 +258,20 @@ class Agenda:
         meeting = self.get_meeting(meeting_id)
         return self._meetings.pop(meeting.item_id)
 
-    def _refuse_if_external(self, id_or_title):
-        """Raise ReadOnlySourceError if id_or_title matches a read-only external meeting."""
+    def _refuse_if_external(self, id_or_title, exact_only=False):
+        """Raise ReadOnlySourceError if id_or_title matches a read-only external meeting.
+
+        An ID must match exactly. With exact_only the title must match exactly
+        too; otherwise part of the title is enough.
+        """
         query_lower = id_or_title.lower()
         for mtg in self._external:
-            if mtg.item_id.lower() == query_lower or query_lower in mtg.title.lower():
+            title_lower = mtg.title.lower()
+            if exact_only:
+                title_matches = title_lower == query_lower
+            else:
+                title_matches = query_lower in title_lower
+            if mtg.item_id.lower() == query_lower or title_matches:
                 raise ReadOnlySourceError(
                     f"'{mtg.title}' comes from your calendar file, so BuddyAI "
                     "cannot change, move or cancel it. Change it in your calendar "
@@ -275,12 +284,16 @@ class Agenda:
             raise MeetingNotFoundError("Meeting ID cannot be empty.")
         key = meeting_id.strip()
         if key not in self._meetings:
-            self._refuse_if_external(key)
+            self._refuse_if_external(key, exact_only=True)
             raise MeetingNotFoundError(f"Meeting '{key}' was not found.")
         return self._meetings[key]
 
     def find_meeting(self, id_or_title):
-        """Find a local meeting by exact ID first, then case-insensitive title."""
+        """Find a local meeting by exact ID first, then case-insensitive title.
+
+        Order: exact local ID, exact local title, exact calendar-file ID or
+        title (refused as read-only), then part of a local title.
+        """
         if not isinstance(id_or_title, str) or not id_or_title.strip():
             raise InvalidInputError("Meeting ID or title cannot be empty.")
         query = id_or_title.strip()
@@ -300,6 +313,9 @@ class Agenda:
                 f"Multiple meetings match '{query}': {labels}.",
                 matches=exact_matches,
             )
+        # An exact calendar-file title wins over part of a local title, so
+        # "Standup" refuses the read-only "Standup", not cancel "Standup prep".
+        self._refuse_if_external(query, exact_only=True)
 
         partial_matches = [
             mtg for mtg in candidates if query_lower in mtg.title.lower()

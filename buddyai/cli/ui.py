@@ -260,24 +260,26 @@ class TerminalUI:
                 )
         self._console.print()
 
+    # The message lines below are printed as Text, so Rich shows them exactly
+    # as written: a title such as "Fix [/] now" is not read as Rich markup.
     def render_ok(self, text):
-        self._console.print(f"{self._glyphs['ok']} {text}", style="ok")
+        self._console.print(Text(f"{self._glyphs['ok']} {text}", style="ok"))
 
     def render_warn(self, text):
-        self._console.print(f"{self._glyphs['warn']} {text}", style="warn")
+        self._console.print(Text(f"{self._glyphs['warn']} {text}", style="warn"))
 
     def render_error(self, text):
-        self._console.print(f"{self._glyphs['err']} {text}", style="err")
+        self._console.print(Text(f"{self._glyphs['err']} {text}", style="err"))
 
     def render_muted(self, text):
-        self._console.print(text, style="muted")
+        self._console.print(Text(text, style="muted"))
 
     def pick_model_interactive(self, app):
         """Show an interactive /model selector (or plain list when non-TTY)."""
         app.sync_model_limits()
         catalog = app.model_catalog
         if not self._interactive:
-            self._console.print(catalog.describe(), style="buddy.text")
+            self._console.print(Text(catalog.describe(), style="buddy.text"))
             return None
 
         from prompt_toolkit.application import Application
@@ -410,8 +412,8 @@ class TerminalUI:
         grid = Table.grid(padding=(0, 2))
         grid.add_column(style="muted")
         grid.add_column(style="buddy.text")
-        grid.add_row("Active model:", model_text)
-        grid.add_row("Timezone:", tz_name)
+        grid.add_row("Active model:", Text(model_text))
+        grid.add_row("Timezone:", Text(tz_name))
         grid.add_row("Open tasks:", str(open_tasks))
         grid.add_row("Pending proposals:", str(proposals))
         grid.add_row("Meetings today:", str(meetings_today))
@@ -424,7 +426,7 @@ class TerminalUI:
             )
         else:
             cal_text = "none"
-        grid.add_row("Calendar file:", cal_text)
+        grid.add_row("Calendar file:", Text(cal_text))
 
         self._console.print(
             Panel(
@@ -465,7 +467,8 @@ class TerminalUI:
                     if task.due_date is not None
                     else "-"
                 )
-                table.add_row(task.item_id, task.title, str(task.priority), due_text)
+                # Text() shows the saved title as it is, never as Rich markup.
+                table.add_row(Text(task.item_id), Text(task.title), str(task.priority), due_text)
             self._console.print(table)
 
         if proposals:
@@ -479,7 +482,7 @@ class TerminalUI:
             prop_table.add_column("ID", style="muted", no_wrap=True)
             prop_table.add_column("Title", style="buddy.text")
             for task in proposals:
-                prop_table.add_row(task.item_id, task.title)
+                prop_table.add_row(Text(task.item_id), Text(task.title))
             self._console.print(prop_table)
 
     def render_brief(self, app, target_now=None, weather_at=None, location=None):

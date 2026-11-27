@@ -34,7 +34,10 @@ class ModelLimitLog:
             return []           # no file yet, or unreadable: nothing is known
         if not isinstance(data, dict) or data.get("quota_day") != self._quota_day():
             return []           # the list is from an earlier day, so it has reset
-        return [name for name in data.get("models", []) if isinstance(name, str)]
+        models = data.get("models")
+        if not isinstance(models, list):
+            return []           # a damaged list: treat it as empty
+        return [name for name in models if isinstance(name, str)]
 
     def record(self, name):
         """Remember that a model has no free requests left until the next reset."""

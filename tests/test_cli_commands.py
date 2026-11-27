@@ -528,6 +528,13 @@ class TestTaskDone(_RouterTestCase):
         self.assertIn("/task done <task>", self.output())
         self.assertEqual(self.task.status, "open")
 
+    def test_task_done_twice_by_id_says_it_is_already_done(self):
+        self.router.handle(f"/task done {self.task.item_id}")
+        self.router.handle(f"/task done {self.task.item_id}")
+        output = self.output()
+        self.assertEqual(output.count("Completed task"), 1)
+        self.assertIn("InvalidInputError: Task 'Write report' is already done.", output)
+
 
 class TestFileMentions(_RouterTestCase):
     """Checks that @path in a message attaches a file and is checked first."""
@@ -593,6 +600,57 @@ class TestFileMentions(_RouterTestCase):
     def test_a_message_without_mentions_is_sent_unchanged(self):
         self.router.send("What is due today?")
         self.assertEqual(self.app.asked, [("What is due today?", None)])
+
+    def test_a_handle_with_a_dot_is_not_a_file_mention(self):
+        text = "mail the notes to @ana.cruz please"
+        self.assertEqual(CommandRouter._take_file_mentions(text), (text, []))
+
+    def test_a_time_after_an_at_sign_is_not_a_file_mention(self):
+        text = "Move the call to @3.30pm"
+        self.assertEqual(CommandRouter._take_file_mentions(text), (text, []))
+
+    def test_a_handle_with_a_dot_is_sent_to_the_model_unchanged(self):
+        self.router.send("mail the notes to @ana.cruz please")
+        self.assertEqual(self.app.asked, [("mail the notes to @ana.cruz please", None)])
+
+    def test_a_path_cut_at_a_space_shows_the_quotes_hint(self):
+        self.router.send(f"Summarize @{os.path.join(self._tmp.name, 'Juan')} Cruz\\notes.txt")
+        output = self.output()
+        self.assertIn("UnsupportedFileTypeError", output)
+        self.assertIn("If the file path has spaces, put it in double quotes", output)
+        self.assertEqual(self.app.asked, [])
+
+
+class TestTextIsShownAsTyped(_RouterTestCase):
+    """Checks that titles and messages are printed literally, never as Rich markup."""
+
+    def test_adding_a_title_with_a_closing_tag_shows_it_without_a_crash(self):
+        self.router.handle("/task add Fix [/] now")
+        self.assertIn("Added task: Fix [/] now", self.output())
+
+    def test_tasks_lists_a_title_with_a_closing_tag(self):
+        self.app.toolkit.add_task("Fix [/] now")
+        self.router.handle("/tasks")
+        self.assertIn("Fix [/] now", self.output())
+
+    def test_square_brackets_in_a_title_are_kept(self):
+        self.app.toolkit.add_task("Report [draft] v2")
+        self.router.handle("/tasks")
+        self.assertIn("Report [draft] v2", self.output())
+
+    def test_the_ascii_ok_glyph_is_shown(self):
+        # A StringIO console has no UTF-8 encoding, so the ASCII glyphs are used.
+        self.router.handle("/task add Write report")
+        self.assertIn("[ok] Added task: Write report", self.output())
+
+    def test_brief_shows_emphasis_characters_in_a_title_as_typed(self):
+        self.app.toolkit.add_task("Fix *urgent* bug_report", due="2026-11-26")
+        self.router.handle("/brief")
+        self.assertIn("Fix *urgent* bug_report", self.output())
+
+    def test_a_spoken_reply_with_brackets_is_shown_as_said(self):
+        self.router._render_voice_text("BuddyAI", "Say [/] or [bold]hi")
+        self.assertIn("BuddyAI: Say [/] or [bold]hi", self.output())
 
 
 class TestHelpAndTypos(_RouterTestCase):

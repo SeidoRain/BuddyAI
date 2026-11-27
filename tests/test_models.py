@@ -311,6 +311,24 @@ class TestModelValidationAndStatusFlow(unittest.TestCase):
         task.mark_done()
         self.assertEqual(task.status, "done")
 
+    def test_done_task_cannot_be_marked_done_again(self):
+        task = Task("Review draft", self.now, status="done")
+        with self.assertRaises(InvalidInputError) as ctx:
+            task.mark_done()
+        self.assertIn("is already done", str(ctx.exception))
+
+    def test_equal_contacts_have_the_same_hash(self):
+        first = Contact("Ana", email="ana@example.com")
+        second = Contact("Ana", email="ana@example.com")
+        self.assertEqual(len({first, second}), 1)
+
+    def test_remove_action_item_unlinks_the_task_from_the_note(self):
+        task = Task("Send slides", self.now)
+        note = Note("Kickoff", self.now, action_items=[task])
+        note.remove_action_item(task)
+        self.assertEqual(note.action_items, [])
+        self.assertEqual(note.to_dict()["action_item_ids"], [])
+
     def test_done_task_cannot_be_confirmed(self):
         task = Task("Review draft", self.now, status="done")
         with self.assertRaises(InvalidInputError):

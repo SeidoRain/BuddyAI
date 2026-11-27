@@ -5,6 +5,7 @@ import os
 import time
 import zipfile
 from xml.etree import ElementTree
+import zlib
 
 from buddyai.config import (
     DOCUMENT_TIMEOUT_SECONDS,
@@ -120,6 +121,11 @@ class DocumentReader:
         if not isinstance(path, str) or not path.strip():
             raise InvalidInputError("File path cannot be empty.")
         cleaned = path.strip()
+        # Accept "C:\My Files\notes.pdf" in quotes and ~ for the home folder,
+        # as /calendar does.
+        if len(cleaned) >= 2 and cleaned[0] == cleaned[-1] and cleaned[0] in ('"', "'"):
+            cleaned = cleaned[1:-1].strip()
+        cleaned = os.path.expanduser(cleaned)
         ext = os.path.splitext(cleaned)[1].lower()
         if ext not in self.SUPPORTED_TYPES:
             supported = ", ".join(sorted(self.SUPPORTED_TYPES.keys()))
@@ -128,6 +134,10 @@ class DocumentReader:
             )
         if not os.path.isfile(cleaned):
             raise InvalidInputError(f"File not found: '{cleaned}'.")
+        if os.path.getsize(cleaned) == 0:
+            raise InvalidInputError(
+                f"'{os.path.basename(cleaned)}' is empty, so there is nothing to summarize."
+            )
         return os.path.abspath(cleaned), self.SUPPORTED_TYPES[ext]
 
     def _extract_docx_text(self, path):
@@ -149,13 +159,23 @@ class DocumentReader:
             if b"<!DOCTYPE" in xml_bytes:
                 raise InvalidInputError(f"'{name}' is not a readable Word (.docx) file.")
             root = ElementTree.fromstring(xml_bytes)
-        except (zipfile.BadZipFile, KeyError, ElementTree.ParseError, OSError) as exc:
+            lines = []
+            self._collect_paragraphs(root, lines, [])
+        # zlib.error: damaged compressed data. RuntimeError also covers an
+        # encrypted file, NotImplementedError (unknown compression) and
+        # RecursionError (XML nested too deeply to walk).
+        except (
+            zipfile.BadZipFile,
+            KeyError,
+            ElementTree.ParseError,
+            OSError,
+            zlib.error,
+            RuntimeError,
+        ) as exc:
             raise InvalidInputError(
                 f"'{name}' is not a readable Word (.docx) file."
             ) from exc
 
-        lines = []
-        self._collect_paragraphs(root, lines, [])
         text = "\n".join(line for line in lines if line)
         if not text:
             raise InvalidInputError(f"'{name}' has no text to summarize.")
@@ -277,7 +297,9 @@ class DocumentReader:
         )
 
         payload = self._parse_json_response(getattr(response, "text", ""))
-        summary_text = str(payload.get("summary", "")).strip()
+        # A null field from the model is treated as empty, never as the text "None".
+        summary = payload.get("summary")
+        summary_text = summary.strip() if isinstance(summary, str) else ""
         key_points = payload.get("key_points") or []
         raw_actions = payload.get("action_items") or []
 
@@ -286,7 +308,9 @@ class DocumentReader:
             body_parts.append(summary_text)
         if isinstance(key_points, list) and key_points:
             bullets = "\n".join(
-                f"- {str(point).strip()}" for point in key_points if str(point).strip()
+                f"- {str(point).strip()}"
+                for point in key_points
+                if point is not None and str(point).strip()
             )
             if bullets:
                 body_parts.append("Key Points:\n" + bullets)
@@ -297,7 +321,8 @@ class DocumentReader:
             for item in raw_actions:
                 if not isinstance(item, dict):
                     continue
-                title = str(item.get("title", "")).strip()
+                raw_title = item.get("title")
+                title = raw_title.strip() if isinstance(raw_title, str) else ""
                 if not title:
                     continue
                 priority_name = str(item.get("priority", "medium")).strip().lower()

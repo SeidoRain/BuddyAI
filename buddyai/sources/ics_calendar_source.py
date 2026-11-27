@@ -3,10 +3,11 @@
 from datetime import datetime, timezone
 import hashlib
 import os
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+import re
+from zoneinfo import ZoneInfo
 
 from buddyai.config import default_clock, get_timezone
-from buddyai.exceptions import DataSourceError, InvalidInputError
+from buddyai.exceptions import DataSourceError
 from buddyai.models.meeting import Meeting
 from buddyai.sources.data_source import DataSource
 
@@ -17,6 +18,8 @@ class IcsCalendarSource(DataSource):
     """Reads VEVENT records from a local .ics file as read-only Meeting items."""
 
     DEFAULT_NAME = "ics_calendar"
+    # YYYYMMDDTHHMMSS, with a Z at the end for UTC times.
+    _DATE_TIME_SHAPE = re.compile(r"^[0-9]{8}T[0-9]{6}Z?$", re.IGNORECASE)
 
     def __init__(self, path, name=DEFAULT_NAME, clock=None, tz=None):
         super().__init__(name)
@@ -193,10 +196,13 @@ class IcsCalendarSource(DataSource):
             return True
         return len(cleaned) == 8 and cleaned.isdigit()
 
-    @staticmethod
-    def _parse_when(params, value, tz):
+    @classmethod
+    def _parse_when(cls, params, value, tz):
         """Parse an iCalendar UTC, TZID, or floating date-time into tz."""
         cleaned = value.strip()
+        # strptime would read "20261128T1030" as 10:03, so check the shape first.
+        if not cls._DATE_TIME_SHAPE.match(cleaned):
+            raise ValueError(f"Unreadable date-time '{cleaned}'")
         if cleaned.endswith(("Z", "z")):
             parsed = datetime.strptime(cleaned[:-1], "%Y%m%dT%H%M%S")
             return parsed.replace(tzinfo=timezone.utc).astimezone(tz)
@@ -279,7 +285,9 @@ class IcsCalendarSource(DataSource):
                 kind, meeting, is_recurring = self._event_to_meeting(
                     event, tz, seen_ids
                 )
-            except (InvalidInputError, ValueError, ZoneInfoNotFoundError):
+            # Any problem with one event (bad date, year 9999, unknown TZID)
+            # skips that event only; the rest of the calendar still loads.
+            except Exception:
                 skipped += 1
                 continue
             if kind == "all_day":

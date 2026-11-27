@@ -270,6 +270,8 @@ class BuddyApp:
         digest = hashlib.sha1(data).hexdigest()[:8]
         base = os.path.splitext(os.path.basename(name))[0] if name else "upload"
         safe = "".join(ch if ch.isalnum() or ch in " -_." else "_" for ch in base).strip()
+        # Windows refuses very long file names, so keep the first 100 characters.
+        safe = safe[:100].strip()
         filename = f"{safe or 'upload'}-{digest}{extension}"
         path = os.path.join(self._uploads_dir, filename)
         if not os.path.isfile(path):
@@ -278,11 +280,26 @@ class BuddyApp:
                 handle.write(data)
         return f"Attached file path to summarize: {os.path.abspath(path)}"
 
+    @staticmethod
+    def _is_model_command(text):
+        """Return True if `text` is a /model command, without running it."""
+        words = (text or "").strip().split(None, 1)
+        return bool(words) and words[0].lower() in ("/model", "/models")
+
+    def _start_new_message(self, text):
+        """Give busy or rate-limited models a fresh try for a new message.
+
+        Only daily limits last until Google's reset. A /model command keeps the
+        marks, so the list it shows still says which models just failed.
+        """
+        if not self._is_model_command(text):
+            self._catalog.clear_temporary()
+
     def run_model_command(self, text):
         """Answer a /model command with a CommandReply, or return None for other text."""
-        words = (text or "").strip().split(None, 1)
-        if not words or words[0].lower() not in ("/model", "/models"):
+        if not self._is_model_command(text):
             return None
+        words = text.strip().split(None, 1)
         self._sync_limits()
         try:
             if len(words) == 1:
@@ -432,6 +449,9 @@ class BuddyApp:
         if invocation != self._last_request_invocation:
             self._last_request_invocation = invocation
             self._toolkit.begin_request()
+            user_content = getattr(callback_context, "user_content", None)
+            parts = getattr(user_content, "parts", None) or []
+            self._start_new_message(" ".join(part.text for part in parts if part.text))
         return None
 
     def _attach_notices(self, callback_context, llm_response):
@@ -552,6 +572,11 @@ class BuddyApp:
             return (
                 "Authentication with the Gemini API failed. Check GOOGLE_API_KEY in buddy_agent/.env."
             )
+        if BuddyApp._is_model_not_found(exc):
+            return (
+                "This Gemini model is not available for your API key (the name may "
+                "be wrong or the model retired). Type /model to pick another model."
+            )
         logger.exception("Error while running BuddyApp.ask.")
         return (
             f"Sorry, I ran into a problem talking to Gemini ({detail}). Send your "
@@ -581,7 +606,21 @@ class BuddyApp:
         busy = server_side or "UNAVAILABLE" in text or "DEADLINE_EXCEEDED" in text
         if busy or self._is_timeout(exc):
             return ModelCatalog.NOT_RESPONDING
+        if self._is_model_not_found(exc):
+            return ModelCatalog.NOT_AVAILABLE
         return None
+
+    @staticmethod
+    def _is_model_not_found(exc):
+        """Return True when Google says the model name does not exist for this key."""
+        text = str(exc).upper()
+        code = getattr(exc, "code", None)
+        if code == 404 or "NOT_FOUND" in text:
+            return True
+        names_the_model = "MODEL" in text and (
+            "NOT FOUND" in text or "NOT SUPPORTED" in text or "UNKNOWN MODEL" in text
+        )
+        return code == 400 and names_the_model
 
     @staticmethod
     def _why(model, reason):
@@ -590,12 +629,18 @@ class BuddyApp:
             return f"{model} has reached today's free request limit"
         if reason == ModelCatalog.RATE_LIMITED:
             return f"{model} has reached its requests-per-minute limit"
+        if reason == ModelCatalog.NOT_AVAILABLE:
+            return f"{model} is not available for your API key"
         return f"{model} is not responding right now"
 
-    def _note_failure(self, exc):
-        """Record a failed model request; return (model, reason) for the reply."""
+    def _note_failure(self, exc, model=None):
+        """Record a failed model request; return (model, reason) for the reply.
+
+        `model` is the model the request was sent to. Without it, the current
+        model is blamed.
+        """
         reason = self._unusable_reason(exc)
-        failed = self._catalog.current
+        failed = model or self._catalog.current
         # Keep a short record in buddyai.log; the chat only shows the plain reply.
         logger.warning(
             "Model request to %s failed (%s): %s",
@@ -648,18 +693,34 @@ class BuddyApp:
         The failed request produced nothing, so repeating it on another model
         cannot do anything twice. Each model that fails is marked, which is
         what stops this loop. The user is told about every switch.
+
+        The model blamed is the one the request was sent to: when two requests
+        fail at the same time, the second must not blame the model the first
+        one has already switched to.
         """
         while True:
-            failed, reason = self._note_failure(error)
-            replacement = self._catalog.best_available() if reason is not None else None
-            if replacement is None:
-                return self._text_response(
-                    self._nothing_usable_message(error, reason) + self._already_saved_note()
-                )
-            self.switch_model(replacement)
-            self._pending_notices.append(
-                f"{self._why(failed, reason)}, so I switched to {replacement}."
+            failed, reason = self._note_failure(error, llm_request.model)
+            current = self._catalog.current
+            # Another request may already have moved BuddyAI to a working
+            # model; then this request just tries that model, with no new switch.
+            already_moved = (
+                reason is not None
+                and current != failed
+                and self._catalog.is_available(current)
             )
+            if not already_moved:
+                replacement = (
+                    self._catalog.best_available() if reason is not None else None
+                )
+                if replacement is None:
+                    return self._text_response(
+                        self._nothing_usable_message(error, reason)
+                        + self._already_saved_note()
+                    )
+                self.switch_model(replacement)
+                self._pending_notices.append(
+                    f"{self._why(failed, reason)}, so I switched to {replacement}."
+                )
             try:
                 answer = await self._ask_current_model(llm_request)
             except Exception as exc:
@@ -736,6 +797,7 @@ class BuddyApp:
             if not prompt_text:
                 return "Please enter a message, or attach a file by writing @path in it."
 
+            self._start_new_message(prompt_text)
             command_reply = self.intercept(prompt_text)
             if command_reply is not None:
                 return command_reply

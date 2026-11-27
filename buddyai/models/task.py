@@ -88,6 +88,8 @@ class Task(WorkItem):
             raise InvalidInputError(
                 f"Task '{self._title}' is still proposed. Confirm it before marking it done."
             )
+        if self._status == "done":
+            raise InvalidInputError(f"Task '{self._title}' is already done.")
         self._status = "done"
 
     def set_due_date(self, due_date, now):

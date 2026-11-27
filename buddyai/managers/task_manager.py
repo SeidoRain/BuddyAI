@@ -103,8 +103,10 @@ class TaskManager:
     def find_task(self, id_or_title, include_done=False):
         """Find a task by exact ID first, then by title among active tasks.
 
-        Done tasks are searched by title only when include_done is True and no
-        active task matches.
+        Done tasks are searched by title only when include_done is True. An
+        exact title always wins over a partial one, even when the exact match
+        is a done task: "Buy milk" never picks "Buy milk and eggs". Within each
+        level, active tasks come before done ones.
         """
         if not isinstance(id_or_title, str) or not id_or_title.strip():
             raise InvalidInputError("Task ID or title cannot be empty.")
@@ -113,14 +115,22 @@ class TaskManager:
             return self._tasks[query]
 
         active = [task for task in self._tasks.values() if task.status != "done"]
-        found = self._match_by_title(active, query, "tasks")
-        if found is None and include_done:
-            done = [task for task in self._tasks.values() if task.status == "done"]
-            found = self._match_by_title(done, query, "tasks")
-        if found is None:
-            scope = "task" if include_done else "active task"
-            raise TaskNotFoundError(f"No {scope} found matching '{query}'.")
-        return found
+        groups = [active]
+        if include_done:
+            groups.append(
+                [task for task in self._tasks.values() if task.status == "done"]
+            )
+        query_lower = query.lower()
+        for group in groups:
+            exact = [task for task in group if task.title.lower() == query_lower]
+            if exact:
+                return self._match_by_title(exact, query, "tasks")
+        for group in groups:
+            found = self._match_by_title(group, query, "tasks")
+            if found is not None:
+                return found
+        scope = "task" if include_done else "active task"
+        raise TaskNotFoundError(f"No {scope} found matching '{query}'.")
 
     def find_reminder(self, id_or_title):
         """Find a reminder by exact ID first, then by exact or partial title."""
@@ -143,11 +153,10 @@ class TaskManager:
             if not isinstance(title, str) or not title.strip():
                 raise InvalidInputError("Title cannot be empty.")
 
+        # The same check set_priority makes, done first so nothing changes
+        # halfway (2.0 is equal to 2 but is not a whole-number priority).
         if priority is not None:
-            if isinstance(priority, bool) or priority not in Task.VALID_PRIORITIES:
-                raise InvalidInputError(
-                    "Priority must be 1 (low), 2 (medium), or 3 (high)."
-                )
+            Task._validate_priority(priority)
 
         validated_due = None
         if due_date is not None:

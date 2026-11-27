@@ -51,6 +51,11 @@ class Note(WorkItem):
         if task not in self._action_items:
             self._action_items.append(task)
 
+    def remove_action_item(self, task):
+        """Unlink a Task from this note; do nothing if it was not linked."""
+        if task in self._action_items:
+            self._action_items.remove(task)
+
     def is_due(self, now):
         """Notes are reference records and are never due on a schedule."""
         return False

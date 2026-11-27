@@ -94,6 +94,16 @@ class TestModelLimitLog(unittest.TestCase):
             handle.write("{ not json")
         self.assertEqual(self.log.limited_today(), [])
 
+    def test_a_models_value_that_is_not_a_list_is_treated_as_empty(self):
+        quota_day = self.log._quota_day()
+        for bad_value in ("null", "5"):
+            with self.subTest(models=bad_value):
+                with open(
+                    os.path.join(self._tmp.name, ModelLimitLog.FILE_NAME), "w"
+                ) as handle:
+                    handle.write(f'{{"quota_day": "{quota_day}", "models": {bad_value}}}')
+                self.assertEqual(self.log.limited_today(), [])
+
     def test_next_reset_is_midnight_pacific_shown_in_local_time(self):
         self.assertEqual(
             self.log.next_reset(), datetime(2026, 11, 24, 16, 0, tzinfo=MANILA)

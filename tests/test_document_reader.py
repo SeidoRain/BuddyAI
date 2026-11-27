@@ -5,7 +5,9 @@ import json
 import os
 import tempfile
 import unittest
+from unittest import mock
 import zipfile
+import zlib
 from zoneinfo import ZoneInfo
 
 from buddyai.document_reader import DocumentReader
@@ -260,6 +262,90 @@ class TestDocxReading(unittest.TestCase):
             handle.write(b"x")
         with self.assertRaises(UnsupportedFileTypeError):
             self.reader.validate_file(os.path.join(self._tmp.name, "old.doc"))
+
+    def test_damaged_compressed_data_is_refused_as_unreadable(self):
+        _write_docx(self.path, _paragraph("Hello"))
+        with mock.patch.object(zipfile.ZipFile, "read", side_effect=zlib.error("bad")):
+            with self.assertRaises(InvalidInputError) as ctx:
+                self.reader.summarize(self.path)
+        self.assertIn("not a readable Word", str(ctx.exception))
+
+    def test_an_encrypted_file_is_refused_as_unreadable(self):
+        _write_docx(self.path, _paragraph("Hello"))
+        with mock.patch.object(
+            zipfile.ZipFile, "read", side_effect=RuntimeError("encrypted")
+        ):
+            with self.assertRaises(InvalidInputError) as ctx:
+                self.reader.summarize(self.path)
+        self.assertIn("not a readable Word", str(ctx.exception))
+
+    def test_xml_nested_too_deeply_is_refused_as_unreadable(self):
+        _write_docx(self.path, "<w:p>" * 5000 + "</w:p>" * 5000)
+        with self.assertRaises(InvalidInputError) as ctx:
+            self.reader.summarize(self.path)
+        self.assertIn("not a readable Word", str(ctx.exception))
+        self.assertEqual(self.client.models.calls, [])
+
+
+class TestDocumentReaderSmallFixes(unittest.TestCase):
+    """Checks empty files, quoted and ~ paths, and null fields in the model's reply."""
+
+    def setUp(self):
+        self.now = datetime(2026, 11, 27, 10, 0, tzinfo=MANILA)
+        self._tmp = tempfile.TemporaryDirectory()
+        self.path = os.path.join(self._tmp.name, "notes.txt")
+        with open(self.path, "w", encoding="utf-8") as handle:
+            handle.write("Meeting notes")
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _reader(self, payload):
+        self.client = _FakeGenAIClient(payload)
+        return DocumentReader(
+            model="gemini-3.5-flash-lite", client=self.client, clock=lambda: self.now
+        )
+
+    def test_an_empty_file_is_refused_without_calling_the_model(self):
+        empty = os.path.join(self._tmp.name, "empty.pdf")
+        open(empty, "wb").close()
+        reader = self._reader({"summary": "s", "key_points": [], "action_items": []})
+        with self.assertRaises(InvalidInputError) as ctx:
+            reader.summarize(empty)
+        self.assertIn("is empty", str(ctx.exception))
+        self.assertEqual(self.client.models.calls, [])
+
+    def test_a_path_in_double_quotes_is_accepted(self):
+        reader = self._reader({"summary": "s", "key_points": [], "action_items": []})
+        abs_path, _ = reader.validate_file(f'"{self.path}"')
+        self.assertEqual(abs_path, os.path.abspath(self.path))
+
+    def test_a_tilde_path_is_read_from_the_home_folder(self):
+        reader = self._reader({"summary": "s", "key_points": [], "action_items": []})
+        home = {"USERPROFILE": self._tmp.name, "HOME": self._tmp.name}
+        with mock.patch.dict(os.environ, home):
+            abs_path, _ = reader.validate_file(os.path.join("~", "notes.txt"))
+        self.assertEqual(abs_path, os.path.abspath(self.path))
+
+    def test_a_null_summary_does_not_become_the_text_none(self):
+        reader = self._reader({"summary": None, "key_points": [None], "action_items": []})
+        note = reader.summarize(self.path)
+        self.assertNotIn("None", note.body)
+        self.assertEqual(note.body, "No summary extracted.")
+
+    def test_an_action_item_with_a_null_title_is_skipped(self):
+        reader = self._reader(
+            {
+                "summary": "s",
+                "key_points": [],
+                "action_items": [
+                    {"title": None, "priority": "high"},
+                    {"title": "Send slides", "priority": "low"},
+                ],
+            }
+        )
+        note = reader.summarize(self.path)
+        self.assertEqual([task.title for task in note.action_items], ["Send slides"])
 
 
 if __name__ == "__main__":

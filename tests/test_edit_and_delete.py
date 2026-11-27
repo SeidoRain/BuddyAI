@@ -1,7 +1,9 @@
 """Unit tests for editing meetings and deleting reminders, notes, and done tasks."""
 
 from datetime import datetime, timedelta
+import json
 import logging
+import os
 import tempfile
 import unittest
 from zoneinfo import ZoneInfo
@@ -191,6 +193,15 @@ class TestTaskManagerFindDoneTask(unittest.TestCase):
     def test_unknown_title_still_raises_task_not_found_with_include_done(self):
         with self.assertRaises(TaskNotFoundError):
             self.tm.find_task("Walk dog", include_done=True)
+
+    def test_an_exact_done_title_wins_over_part_of_an_active_title(self):
+        self.tm.add_task(Task("Buy milk and eggs", NOW), NOW)
+        self.assertIs(self.tm.find_task("Buy milk", include_done=True), self.done)
+
+    def test_part_of_an_active_title_still_wins_without_include_done(self):
+        longer = Task("Buy milk and eggs", NOW)
+        self.tm.add_task(longer, NOW)
+        self.assertIs(self.tm.find_task("Buy milk"), longer)
 
 
 class TestNotebookFindNote(unittest.TestCase):
@@ -450,6 +461,38 @@ class TestToolkitDoneTasks(_ToolkitTestCase):
     def test_deleted_done_task_is_gone_after_reload(self):
         self.tk.delete_task("Buy milk")
         self.assertEqual(self._reload().tasks.list_all_tasks(), [])
+
+    def test_delete_by_exact_title_keeps_the_longer_open_task(self):
+        self.tk.add_task("Buy milk and eggs")
+        res = self.tk.delete_task("Buy milk")
+        self.assertEqual(res["task"]["title"], "Buy milk")
+        self.assertEqual(
+            [task.title for task in self.ws.tasks.list_all_tasks()], ["Buy milk and eggs"]
+        )
+
+
+class TestToolkitDeleteLinkedTask(_ToolkitTestCase):
+    """Checks that deleting a task also removes it from the note it came from."""
+
+    def setUp(self):
+        super().setUp()
+        self.tk.add_task("Send slides")
+        self.task = self.ws.tasks.find_task("Send slides")
+        self.note = Note("Kickoff summary", NOW, action_items=[self.task])
+        self.ws.notebook.add_note(self.note)
+        self.ws.save()
+
+    def test_deleting_a_task_unlinks_it_from_its_note(self):
+        self.tk.delete_task(self.task.item_id)
+        self.assertEqual(self.note.action_items, [])
+
+    def test_the_saved_note_no_longer_lists_the_deleted_task(self):
+        self.tk.delete_task(self.task.item_id)
+        # Read the file itself: a reload would quietly drop an unknown ID.
+        notes_path = os.path.join(self._tmp.name, JsonStore.NOTES_FILE)
+        with open(notes_path, "r", encoding="utf-8") as handle:
+            saved = json.load(handle)
+        self.assertEqual(saved[0]["action_item_ids"], [])
 
 
 class TestHonestyRuleInProfiles(unittest.TestCase):

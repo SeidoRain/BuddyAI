@@ -240,6 +240,9 @@ class BuddyToolkit:
             self._refuse_if_untrusted_read()
             target = self._workspace.tasks.find_task(task, include_done=True)
             removed = self._workspace.tasks.remove_task(target.item_id)
+            # A deleted task must not stay linked to the note it came from.
+            for note in self._workspace.notebook.list_notes():
+                note.remove_action_item(removed)
             self._workspace.save()
             return {
                 "status": "success",

@@ -1,9 +1,12 @@
 """Offline unit tests for WebLookup (Open-Meteo weather, Google News RSS, Wikipedia) and toolkit wiring."""
 
 from datetime import date, datetime, timezone
+import http.client
 import json
+import logging
 import tempfile
 import unittest
+from unittest import mock
 from zoneinfo import ZoneInfo
 
 from buddyai.briefing import BriefingService
@@ -413,6 +416,78 @@ class TestWebLookup(unittest.TestCase):
             copy = ok_briefing.headlines
             copy[0]["title"] = "Mutated"
             self.assertNotEqual(ok_briefing.headlines[0]["title"], "Mutated")
+
+
+class TestOddWebReplies(unittest.TestCase):
+    """Checks that cut-off or oddly shaped replies become DataSourceError, never a crash."""
+
+    def test_a_reply_cut_off_halfway_becomes_data_source_error(self):
+        with mock.patch(
+            "urllib.request.urlopen", side_effect=http.client.IncompleteRead(b"")
+        ):
+            with self.assertRaises(DataSourceError):
+                WebLookup()._fetch_text("https://example.invalid/")
+
+    def test_a_null_geocoding_reply_becomes_data_source_error(self):
+        lookup = WebLookup(fetcher=lambda url: "null")
+        with self.assertRaises(DataSourceError):
+            lookup.get_weather("Manila")
+
+    def test_a_place_without_a_latitude_becomes_data_source_error(self):
+        lookup = WebLookup(fetcher=lambda url: '{"results": [{"name": "Manila"}]}')
+        with self.assertRaises(DataSourceError):
+            lookup.get_weather("Manila")
+
+    def test_a_forecast_that_is_a_list_becomes_data_source_error(self):
+        def _list_forecast(url):
+            return _SAMPLE_GEO if "geocoding" in url else "[]"
+
+        with self.assertRaises(DataSourceError):
+            WebLookup(fetcher=_list_forecast).get_weather("Manila")
+
+    def test_a_wikipedia_reply_that_is_a_list_becomes_data_source_error(self):
+        lookup = WebLookup(fetcher=lambda url: "[]")
+        with self.assertRaises(DataSourceError):
+            lookup._search_wikipedia("Manila", 2)
+
+
+class _BrokenWeb:
+    """Stand-in web lookup whose weather and headlines fail with non-BuddyAI errors."""
+
+    def get_weather(self, location, at_time=None):
+        raise RuntimeError("unexpected weather failure")
+
+    def get_headlines(self, limit=5, country="PH"):
+        raise KeyError("headlines")
+
+
+class TestBriefingNeverRaises(unittest.TestCase):
+    """Checks that /brief still shows the local schedule whatever the web parts do."""
+
+    def setUp(self):
+        logging.disable(logging.CRITICAL)
+        self._tmp = tempfile.TemporaryDirectory()
+        self.ws = Workspace(sources=[JsonStore(self._tmp.name)])
+        self.ws.tasks.add_task(
+            Task("Submit report", NOW, due_date=NOW.replace(hour=23)), NOW
+        )
+
+    def tearDown(self):
+        self._tmp.cleanup()
+        logging.disable(logging.NOTSET)
+
+    def test_an_unexpected_weather_error_shows_weather_as_unavailable(self):
+        briefing = BriefingService(self.ws, web_lookup=_BrokenWeb()).build_briefing(NOW)
+        self.assertIn(
+            "### Weather\nUnavailable (the weather service sent an unexpected reply)",
+            briefing.to_text(),
+        )
+
+    def test_an_unexpected_headlines_error_keeps_the_local_schedule(self):
+        briefing = BriefingService(self.ws, web_lookup=_BrokenWeb()).build_briefing(NOW)
+        text = briefing.to_text()
+        self.assertIn("Submit report", text)
+        self.assertIn("Unavailable (the news feed sent an unexpected reply)", text)
 
 
 if __name__ == "__main__":

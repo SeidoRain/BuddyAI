@@ -115,7 +115,8 @@ def get_timezone():
     tz_name = get_timezone_name()
     try:
         return ZoneInfo(tz_name)
-    except ZoneInfoNotFoundError as exc:
+    # A folder name such as "Asia" gives OSError and "../x" gives ValueError.
+    except (ZoneInfoNotFoundError, ValueError, OSError) as exc:
         raise InvalidInputError(f"Unknown timezone '{tz_name}'.") from exc
 
 

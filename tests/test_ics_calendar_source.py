@@ -380,6 +380,40 @@ class TestIcsIdsAndSkippedEvents(_IcsTestCase):
         self.assertEqual(source.skipped_count, 1)
 
 
+class TestIcsEventsThatUsedToCrash(_IcsTestCase):
+    """Checks that odd dates or zones skip one event instead of stopping the load."""
+
+    def _single_event(self, dtstart, dtend):
+        return _wrap_calendar(
+            "BEGIN:VEVENT",
+            "UID:odd@example.com",
+            "SUMMARY:Odd Event",
+            dtstart,
+            dtend,
+            "END:VEVENT",
+        )
+
+    def test_an_event_in_the_year_9999_is_skipped(self):
+        ics = self._single_event("DTSTART:99991231T230000Z", "DTEND:99991231T235900Z")
+        source, items = self.load_source(ics)
+        self.assertEqual(items, [])
+        self.assertEqual(source.skipped_count, 1)
+
+    def test_a_folder_name_as_tzid_is_skipped(self):
+        ics = self._single_event(
+            "DTSTART;TZID=Asia:20261127T090000", "DTEND;TZID=Asia:20261127T100000"
+        )
+        source, items = self.load_source(ics)
+        self.assertEqual(items, [])
+        self.assertEqual(source.skipped_count, 1)
+
+    def test_a_time_without_seconds_is_skipped_not_misread(self):
+        ics = self._single_event("DTSTART:20261128T1030", "DTEND:20261128T1130")
+        source, items = self.load_source(ics)
+        self.assertEqual(items, [])
+        self.assertEqual(source.skipped_count, 1)
+
+
 class TestIcsErrorsAndReadOnlyContract(_IcsTestCase):
     """Checks DataSourceError cases and inherited ReadOnlySourceError behaviour."""
 

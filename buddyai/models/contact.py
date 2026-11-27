@@ -58,6 +58,10 @@ class Contact:
             and self._organization == other._organization
         )
 
+    def __hash__(self):
+        # Equal contacts must hash alike; the fields never change after creation.
+        return hash((self._name, self._email, self._organization))
+
     def __repr__(self):
         return (
             f"Contact(name={self._name!r}, email={self._email!r}, "

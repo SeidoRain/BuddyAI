@@ -5,9 +5,12 @@ import difflib
 import os
 import re
 
+from rich.text import Text
+
 from buddyai.briefing import resolve_briefing_window
 from buddyai.cli.theme import SLASH_COMMANDS
 from buddyai.config import get_api_key
+from buddyai.document_reader import DocumentReader
 from buddyai.exceptions import BuddyError, InvalidInputError
 
 
@@ -55,6 +58,10 @@ class CommandRouter:
     FILE_USAGE = (
         "Usage: write @path inside your message, for example: "
         "Summarize @notes.txt (put a path with spaces in quotes)"
+    )
+    SPACES_HINT = (
+        'If the file path has spaces, put it in double quotes, for example '
+        '@"C:\\My Files\\notes.pdf".'
     )
 
     def __init__(self, app, ui):
@@ -120,8 +127,9 @@ class CommandRouter:
     def _take_file_mentions(cls, text):
         """Split `Summarize @notes.txt` into the message and the mentioned paths.
 
-        A word after @ counts as a file only if it is quoted, has an extension
-        or contains a folder separator, so "@Ana" stays ordinary text. Each
+        A word after @ counts as a file only if it is quoted, ends in a file
+        type BuddyAI reads, contains a folder separator or names an existing
+        file, so "@Ana" and "@ana.cruz" stay ordinary text. Each
         mention is replaced by the file's name. If the message holds nothing
         but mentions, the message becomes empty and BuddyApp asks for a summary.
         """
@@ -151,7 +159,13 @@ class CommandRouter:
         if quoted is not None:
             return quoted.strip(), ""
         path = bare.rstrip(cls._TRAILING_PUNCTUATION)
-        looks_like_path = os.path.splitext(path)[1] or "/" in path or "\\" in path
+        extension = os.path.splitext(path)[1].lower()
+        looks_like_path = (
+            extension in DocumentReader.SUPPORTED_TYPES
+            or "/" in path
+            or "\\" in path
+            or os.path.isfile(path)
+        )
         if not path or not looks_like_path:
             return None, ""
         return path, bare[len(path):]
@@ -164,11 +178,17 @@ class CommandRouter:
         """
         if files is None:
             prompt_text, files = self._take_file_mentions(prompt_text)
-        try:
-            files = [self._app.check_file(path) for path in files] or None
-        except BuddyError as exc:
-            self._ui.render_error(f"{type(exc).__name__}: {exc}")
-            return
+        checked = []
+        for path in files:
+            try:
+                checked.append(self._app.check_file(path))
+            except BuddyError as exc:
+                self._ui.render_error(f"{type(exc).__name__}: {exc}")
+                # A path cut at a space has no file type left, so explain why.
+                if not os.path.splitext(path)[1]:
+                    self._ui.render_muted(self.SPACES_HINT)
+                return
+        files = checked or None
         try:
             with self._ui.thinking_context() as indicator:
                 reply = self._app.ask(
@@ -346,7 +366,8 @@ class CommandRouter:
         elif speaker == "System":
             self._ui.render_muted(text)
         else:
-            self._ui.console.print(f"{speaker}: {text}", style="buddy.text")
+            # Text(): spoken words are shown as they are, never as Rich markup.
+            self._ui.console.print(Text(f"{speaker}: {text}", style="buddy.text"))
 
     def _live_command(self, arguments):
         """Handle `/live` (speaker-safe) and `/live barge` (full-duplex headphones)."""
@@ -390,7 +411,6 @@ class CommandRouter:
 
         if self._ui.interactive:
             from rich.live import Live
-            from rich.text import Text
 
             prompt_glyph = self._ui.glyphs["prompt"]
 

@@ -88,6 +88,12 @@ class TestModelCatalog(unittest.TestCase):
         with self.assertRaises(InvalidInputError):
             self.catalog.switch("9")
 
+    def test_a_superscript_digit_is_refused_as_an_unknown_model(self):
+        # "²" counts as a digit in Python, but int() cannot read it.
+        with self.assertRaises(InvalidInputError):
+            self.catalog.switch("²")
+        self.assertEqual(self.catalog.current, "gemini-4-hydrogen")
+
     def test_next_moves_down_the_list_and_wraps_around(self):
         self.assertEqual(self.catalog.switch("next"), "gemini-3.6-flash")
         self.assertEqual(self.catalog.switch("next"), "gemini-3.5-flash-lite")

@@ -1,6 +1,7 @@
 """Unit tests for files attached in the browser chat and for moving off a model
 that is busy or silent."""
 
+import asyncio
 import logging
 import os
 import tempfile
@@ -92,6 +93,12 @@ class TestFilesAttachedInTheBrowserChat(unittest.TestCase):
         filename = os.path.basename(note.split(": ", 1)[1])
         self.assertTrue(filename.startswith("client brief-"))
         self.assertTrue(filename.endswith(".pdf"))
+
+    def test_a_very_long_file_name_is_shortened(self):
+        note = self.app.save_upload(PDF_BYTES, "application/pdf", "x" * 300 + ".pdf")
+        path = note.split(": ", 1)[1]
+        self.assertTrue(os.path.isfile(path))
+        self.assertLessEqual(len(os.path.basename(path)), 120)
 
     def test_the_same_file_is_stored_only_once(self):
         self.app.save_upload(PDF_BYTES, "application/pdf", "brief.pdf")
@@ -251,6 +258,191 @@ class TestFailoverWalksDownTheList(unittest.TestCase):
             "so I switched to gemini-3.5-flash-lite.",
             reply,
         )
+
+
+class _PerMinuteError(Exception):
+    code = 429
+
+    def __init__(self):
+        super().__init__(
+            "429 RESOURCE_EXHAUSTED. GenerateRequestsPerMinutePerProjectPerModel-FreeTier"
+        )
+
+
+class _ModelNotFoundError(Exception):
+    code = 404
+
+    def __init__(self):
+        super().__init__(
+            "404 NOT_FOUND. {'error': {'code': 404, 'message': 'models/gemini-4-hydrogen "
+            "is not found for API version v1beta', 'status': 'NOT_FOUND'}}"
+        )
+
+
+def _user_request(model):
+    """A prepared model request, as ADK builds it, that was sent to `model`."""
+    return LlmRequest(
+        model=model,
+        contents=[types.Content(role="user", parts=[types.Part(text="hello")])],
+    )
+
+
+class TestFailoverBlamesTheRightModel(unittest.TestCase):
+    """Checks that a late failure marks the model it was sent to, not the new one."""
+
+    def setUp(self):
+        logging.disable(logging.CRITICAL)
+        self._tmp = tempfile.TemporaryDirectory()
+        self._env = patch.dict(
+            os.environ,
+            {"GOOGLE_API_KEY": "test-key", "BUDDYAI_MODELS": ",".join(CHOICES)},
+        )
+        self._env.start()
+        # As if a first failed request has already moved BuddyAI off Hydrogen.
+        self.app = BuddyApp(
+            data_dir=self._tmp.name, model=_BusyOnHydrogen(model="gemini-3.5-flash-lite")
+        )
+
+    def tearDown(self):
+        self.app.close()
+        self._env.stop()
+        self._tmp.cleanup()
+        logging.disable(logging.NOTSET)
+
+    def _late_failure(self, error):
+        request = _user_request("gemini-4-hydrogen")
+        return asyncio.run(self.app._fail_over(request, error, is_coordinator=False))
+
+    def test_a_late_failure_marks_the_model_it_was_sent_to(self):
+        self._late_failure(_PerMinuteError())
+        catalog = self.app.model_catalog
+        self.assertEqual(catalog.reason_for("gemini-4-hydrogen"), catalog.RATE_LIMITED)
+        self.assertIsNone(catalog.reason_for("gemini-3.5-flash-lite"))
+
+    def test_a_late_failure_is_answered_by_the_current_model_without_a_new_switch(self):
+        answer = self._late_failure(_PerMinuteError())
+        self.assertEqual(answer.content.parts[0].text, "answered by gemini-3.5-flash-lite")
+        self.assertEqual(self.app.current_model, "gemini-3.5-flash-lite")
+        self.assertEqual(self.app._pending_notices, [])
+
+    def test_a_late_daily_limit_is_saved_for_the_model_it_was_sent_to(self):
+        self._late_failure(_DailyLimitError())
+        self.assertEqual(self.app._limit_log.limited_today(), ["gemini-4-hydrogen"])
+
+
+class _RateLimitedOnceThenDaily(BaseLlm):
+    """Stand-in: Flash Lite has a per-minute limit while `limited` is set; 3.6 Flash is used up."""
+
+    limited: bool = True
+
+    async def generate_content_async(self, llm_request, stream=False):
+        if llm_request.model == "gemini-3.6-flash":
+            raise _DailyLimitError()
+        if self.limited:
+            raise _PerMinuteError()
+        text = f"answered by {llm_request.model}"
+        yield LlmResponse(
+            content=types.Content(role="model", parts=[types.Part(text=text)])
+        )
+
+
+class TestTemporaryMarksLastOneMessage(unittest.TestCase):
+    """Checks that busy and per-minute marks are forgotten when a new message starts."""
+
+    def setUp(self):
+        logging.disable(logging.CRITICAL)
+        self._tmp = tempfile.TemporaryDirectory()
+        self._env = patch.dict(
+            os.environ,
+            {
+                "GOOGLE_API_KEY": "test-key",
+                "BUDDYAI_MODELS": "gemini-3.5-flash-lite,gemini-3.6-flash",
+            },
+        )
+        self._env.start()
+        self.llm = _RateLimitedOnceThenDaily(model="gemini-3.5-flash-lite")
+        self.app = BuddyApp(data_dir=self._tmp.name, model=self.llm)
+
+    def tearDown(self):
+        self.app.close()
+        self._env.stop()
+        self._tmp.cleanup()
+        logging.disable(logging.NOTSET)
+
+    def test_a_rate_limited_model_gets_a_fresh_try_on_the_next_message(self):
+        self.app.ask("hello")                       # Flash Lite limited, 3.6 used up
+        self.llm.limited = False                    # a minute later
+        reply = self.app.ask("hello again")
+        self.assertTrue(reply.endswith("answered by gemini-3.5-flash-lite"))
+        self.assertNotIn("cannot answer until then", reply)
+
+    def test_a_daily_limit_mark_stays_for_the_next_message(self):
+        self.app.ask("hello")
+        self.llm.limited = False
+        self.app.ask("hello again")
+        catalog = self.app.model_catalog
+        self.assertEqual(catalog.reason_for("gemini-3.6-flash"), catalog.DAILY_LIMIT)
+
+
+class _MissingHydrogen(BaseLlm):
+    """Stand-in: 'gemini-4-hydrogen' does not exist for this key (404); others answer."""
+
+    async def generate_content_async(self, llm_request, stream=False):
+        if llm_request.model == "gemini-4-hydrogen":
+            raise _ModelNotFoundError()
+        text = f"answered by {llm_request.model}"
+        yield LlmResponse(
+            content=types.Content(role="model", parts=[types.Part(text=text)])
+        )
+
+
+class TestModelNotFound(unittest.TestCase):
+    """Checks that a model the API key cannot use is left like a busy one."""
+
+    def setUp(self):
+        logging.disable(logging.CRITICAL)
+        self._tmp = tempfile.TemporaryDirectory()
+        self._env = patch.dict(
+            os.environ,
+            {"GOOGLE_API_KEY": "test-key", "BUDDYAI_MODELS": ",".join(CHOICES)},
+        )
+        self._env.start()
+
+    def tearDown(self):
+        self.app.close()
+        self._env.stop()
+        self._tmp.cleanup()
+        logging.disable(logging.NOTSET)
+
+    def _open(self):
+        self.app = BuddyApp(
+            data_dir=self._tmp.name, model=_MissingHydrogen(model="gemini-4-hydrogen")
+        )
+        return self.app
+
+    def test_a_missing_model_moves_to_the_next_model(self):
+        reply = self._open().ask("hello")
+        self.assertIn(
+            "gemini-4-hydrogen is not available for your API key, "
+            "so I switched to gemini-3.5-flash-lite.",
+            reply,
+        )
+        self.assertTrue(reply.endswith("answered by gemini-3.5-flash-lite"))
+
+    def test_without_automatic_switching_the_raw_error_is_not_shown(self):
+        with patch.dict(os.environ, {"BUDDYAI_AUTO_SWITCH": "0"}):
+            reply = self._open().ask("hello")
+        self.assertIn("not available for your API key", reply)
+        self.assertNotIn("{'error'", reply)
+
+    def test_an_unrelated_bad_request_is_not_a_missing_model(self):
+        self._open()
+
+        class _BadRequest(Exception):
+            code = 400
+
+        error = _BadRequest("400 INVALID_ARGUMENT. Request contains an invalid argument.")
+        self.assertFalse(BuddyApp._is_model_not_found(error))
 
 
 class _FlakyParent:

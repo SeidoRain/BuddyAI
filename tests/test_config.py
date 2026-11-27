@@ -10,9 +10,11 @@ from buddyai.config import (
     PROJECT_ROOT,
     get_data_dir,
     get_ics_file,
+    get_timezone,
     get_voice_model,
     get_weather_location,
 )
+from buddyai.exceptions import InvalidInputError
 
 
 class TestPathSettings(unittest.TestCase):
@@ -72,6 +74,25 @@ class TestPathSettings(unittest.TestCase):
             os.environ, {"BUDDYAI_LOCATION": "Cebu City"}, clear=False
         ):
             self.assertEqual(get_weather_location(), "Cebu City")
+
+
+class TestTimezoneSetting(unittest.TestCase):
+    """Checks that every kind of bad BUDDYAI_TIMEZONE gives InvalidInputError."""
+
+    def _timezone_error(self, name):
+        with mock.patch.dict(os.environ, {"BUDDYAI_TIMEZONE": name}, clear=False):
+            with self.assertRaises(InvalidInputError) as ctx:
+                get_timezone()
+        return str(ctx.exception)
+
+    def test_an_unknown_zone_name_raises_invalid_input_error(self):
+        self.assertIn("Unknown timezone 'Mars/Base'", self._timezone_error("Mars/Base"))
+
+    def test_a_zone_folder_name_raises_invalid_input_error(self):
+        self.assertIn("Unknown timezone 'Asia'", self._timezone_error("Asia"))
+
+    def test_a_relative_path_raises_invalid_input_error(self):
+        self.assertIn("Unknown timezone '../x'", self._timezone_error("../x"))
 
 
 if __name__ == "__main__":

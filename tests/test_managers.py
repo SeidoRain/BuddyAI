@@ -102,6 +102,14 @@ class TestTaskManager(unittest.TestCase):
             )
         self.assertEqual(task.title, "Alpha")
 
+    def test_failed_update_task_with_a_float_priority_leaves_title_unchanged(self):
+        task = Task("Alpha", self.now)
+        self.tm.add_task(task, self.now)
+        with self.assertRaises(InvalidInputError):
+            self.tm.update_task(task.item_id, title="Updated", priority=2.0)
+        self.assertEqual(task.title, "Alpha")
+        self.assertEqual(task.priority, 2)
+
 
 class TestAgenda(unittest.TestCase):
     """Checks Agenda conflict checks, rescheduling, free slots, and meeting lookups."""

@@ -2,6 +2,7 @@
 
 from datetime import date, datetime
 import html
+import http.client
 import json
 import re
 import urllib.error
@@ -62,7 +63,14 @@ class WebLookup:
                 request, timeout=self.TIMEOUT_SECONDS
             ) as response:
                 return response.read().decode("utf-8", errors="replace")
-        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        # HTTPException covers a reply cut off halfway (IncompleteRead) or a
+        # broken status line (BadStatusLine).
+        except (
+            urllib.error.URLError,
+            TimeoutError,
+            OSError,
+            http.client.HTTPException,
+        ) as exc:
             raise DataSourceError(
                 f"Could not reach web service ({exc}). Check your internet connection."
             ) from exc
@@ -79,7 +87,7 @@ class WebLookup:
             return target
         try:
             return target.astimezone(ZoneInfo(tz_name))
-        except ZoneInfoNotFoundError:
+        except (ZoneInfoNotFoundError, ValueError, OSError):
             return target
 
     @staticmethod
@@ -178,7 +186,20 @@ class WebLookup:
         return resolved
 
     def get_weather(self, location, at_time=None):
-        """Return live weather or forecast for `location` (optionally at `at_time`) via Open-Meteo."""
+        """Return live weather or forecast for `location` (optionally at `at_time`) via Open-Meteo.
+
+        A reply in an unexpected shape (JSON null, a list, a missing field)
+        raises DataSourceError, like a network failure does.
+        """
+        try:
+            return self._lookup_weather(location, at_time)
+        except (AttributeError, TypeError, KeyError, IndexError) as exc:
+            raise DataSourceError(
+                "The weather service sent a reply BuddyAI could not read."
+            ) from exc
+
+    def _lookup_weather(self, location, at_time):
+        """Look up the weather; get_weather turns a badly shaped reply into DataSourceError."""
         place = (location or "").strip()
         if not place:
             raise InvalidInputError("Location cannot be empty.")
@@ -401,21 +422,24 @@ class WebLookup:
             )
         )
         data = json.loads(self._fetch_text(url))
-        items = data.get("query", {}).get("search") or []
         results = []
-        for entry in items[:limit]:
-            title = (entry.get("title") or "").strip()
-            snippet = self._clean_html(entry.get("snippet") or "")
-            slug = urllib.parse.quote(title.replace(" ", "_"))
-            results.append(
-                {
-                    "title": title,
-                    "snippet": snippet,
-                    "source": "Wikipedia",
-                    "published": entry.get("timestamp", ""),
-                    "url": f"https://en.wikipedia.org/wiki/{slug}" if title else "",
-                }
-            )
+        try:
+            items = data.get("query", {}).get("search") or []
+            for entry in items[:limit]:
+                title = (entry.get("title") or "").strip()
+                snippet = self._clean_html(entry.get("snippet") or "")
+                slug = urllib.parse.quote(title.replace(" ", "_"))
+                results.append(
+                    {
+                        "title": title,
+                        "snippet": snippet,
+                        "source": "Wikipedia",
+                        "published": entry.get("timestamp", ""),
+                        "url": f"https://en.wikipedia.org/wiki/{slug}" if title else "",
+                    }
+                )
+        except (AttributeError, TypeError, KeyError) as exc:
+            raise DataSourceError("Wikipedia sent a reply BuddyAI could not read.") from exc
         return results
 
     def search_web(self, query, max_results=5):

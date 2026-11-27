@@ -9,9 +9,18 @@ from dotenv import load_dotenv
 from buddyai.app import BuddyApp
 from buddyai.cli import BuddyPrompt, CommandRouter, TerminalUI
 from buddyai.config import ENV_FILE, PROJECT_ROOT, get_api_key
-from buddyai.exceptions import BuddyError
+from buddyai.exceptions import BuddyError, DataSourceError
 
 LOG_FILE = os.path.join(PROJECT_ROOT, "buddyai.log")
+
+
+def _startup_hint(exc):
+    """Return the follow-up line for an error that stopped BuddyAI from starting."""
+    if isinstance(exc, DataSourceError):
+        return "Fix or remove the file named above, then start BuddyAI again."
+    if isinstance(exc, BuddyError):
+        return "Check your settings in buddy_agent/.env, then start BuddyAI again."
+    return "The details are in buddyai.log."
 
 
 def _configure_logging():
@@ -48,19 +57,22 @@ def main():
         )
         return 1
 
+    app = None
     try:
         app = BuddyApp()
-    except BuddyError as exc:
+        prompt = BuddyPrompt(lambda: app.current_model)
+        router = CommandRouter(app, ui)
+        ui.render_welcome(app)
+        if app.calendar_error:
+            ui.render_warn(app.calendar_error)
+    except Exception as exc:
+        if not isinstance(exc, BuddyError):
+            logging.exception("BuddyAI could not start.")
         ui.render_error(f"{type(exc).__name__}: {exc}")
-        ui.render_muted(
-            "Fix or remove the file named above, then start BuddyAI again."
-        )
+        ui.render_muted(_startup_hint(exc))
+        if app is not None:
+            app.close()
         return 1
-    prompt = BuddyPrompt(lambda: app.current_model)
-    router = CommandRouter(app, ui)
-    ui.render_welcome(app)
-    if app.calendar_error:
-        ui.render_warn(app.calendar_error)
 
     pending_exit = False
     try:
@@ -83,11 +95,20 @@ def main():
             if not user_input:
                 continue
 
-            outcome = router.handle(user_input)
-            if outcome == CommandRouter.EXIT:
-                break
-            if outcome == CommandRouter.NOT_A_COMMAND:
-                router.send(user_input)
+            # One failed command must not end the chat: say so and go on.
+            try:
+                outcome = router.handle(user_input)
+                if outcome == CommandRouter.EXIT:
+                    break
+                if outcome == CommandRouter.NOT_A_COMMAND:
+                    router.send(user_input)
+            except KeyboardInterrupt:
+                ui.render_warn("Cancelled.")
+            except Exception as exc:
+                logging.exception("Unexpected error while handling a typed line.")
+                ui.render_error(
+                    f"{type(exc).__name__}: {exc} (the details are in buddyai.log)"
+                )
     finally:
         app.close()
     return 0
