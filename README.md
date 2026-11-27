@@ -24,7 +24,7 @@ Everything in this list works in the current version.
 - **BuddyAI Live & Voice-to-Text.** Use `/live` for two-way spoken conversation over ADK live streaming (`gemini-3.8-live`, speaker-safe echo guard by default, Space/Enter to interrupt, or `/live barge` for full-duplex headphones), and `/voice` to stream live speech-to-text word-by-word directly into the regular text chat prompt so you can review or edit before sending to whichever text model you chose. `/voice` always uses the fixed Live model `gemini-3.5-transcribe-live`; `/model` does not change it. `/live` shares the same coordinator, specialists, tools and workspace data as the text chat.
 - **Weather and web lookup.** Ask for current weather or recent news and facts in the text chat or in `/live`. The coordinator agent has two tools, `get_weather` and `search_web`, which call `WebLookup` (`buddyai/web_lookup.py`). `WebLookup` uses free public services that need no key (Open-Meteo for weather, Google News RSS and Wikipedia for search) and the Python standard library only. It needs an internet connection.
 - **Reminders.** One-off, daily and weekly reminders can be added, listed and deleted. A reminder scheduled for today stays in today's briefing even after its time has passed, marked `[time has passed]`.
-- **Notes and file summaries.** Save, search and delete notes. Give BuddyAI a PDF, PNG, JPG or TXT file and it saves a summary as a note. In the terminal chat you attach a file by writing `@path` in a message, and the file is checked before any model request. Deleting a note does not delete the tasks that were proposed from it.
+- **Notes and file summaries.** Save, search and delete notes. Give BuddyAI a PDF, PNG, JPG, TXT or Word (`.docx`) file and it saves a summary as a note. In the terminal chat you attach a file by writing `@path` in a message, and the file is checked before any model request. Deleting a note does not delete the tasks that were proposed from it.
 - **Proposals with confirmation.** Tasks suggested from a file are kept as proposals. They become tasks only after you say which ones to keep, and a confirmation is all-or-nothing.
 - **Daily briefing.** Today's (or another day's) meetings, tasks that are due or overdue, and reminders, plus the weather for a chosen time and place (`BUDDYAI_LOCATION`, `Manila` by default) and the top five Philippine news headlines with links. The weather and headline sections need an internet connection. Without it they show `Unavailable (...)` with the reason, and the schedule part still works.
 - **Automatic model switching.** When a Gemini model runs out of free requests, is rate-limited or does not respond, BuddyAI moves to the next usable model, answers the same message and tells you. `/model` switches by hand.
@@ -111,7 +111,7 @@ Terminal commands. Type `/` for autocomplete, `↑`/`↓` for history, and `Tab`
 | `/meet move <meeting> \| <start> \| <end>` | Moves a meeting to a new time with no model request. All three parts are required. A conflict is refused and the meeting stays where it was. |
 | `/meet edit <meeting> \| <title> \| <location>` | Renames a meeting or sets its location with no model request. Leave a field empty to keep it. At least one field must have a value. |
 | `/meet cancel <meeting>` | Cancels a meeting with no model request. |
-| `@path` inside a message | Attaches a PDF, PNG, JPG or TXT file to an ordinary message, for example `Summarize @notes.txt and list the action items`. A path with spaces goes in double quotes: `@"C:\Users\Juan Cruz\brief.pdf"`. See [Giving BuddyAI a file](#giving-buddyai-a-file). |
+| `@path` inside a message | Attaches a PDF, PNG, JPG, TXT or Word (`.docx`) file to an ordinary message, for example `Summarize @notes.txt and list the action items`. A path with spaces goes in double quotes: `@"C:\Users\Juan Cruz\brief.pdf"`. See [Giving BuddyAI a file](#giving-buddyai-a-file). |
 | `/calendar [path \| off]` | Loads a read-only `.ics` calendar file, shows the currently loaded file and counts, or unloads it with `off`. |
 | `/live [barge]` | Starts BuddyAI Live two-way spoken conversation (speaker-safe by default; press Space/Enter to interrupt, or `/live barge` with headphones). |
 | `/voice` | Dictates speech into the regular text prompt (voice-to-text) so you can edit and press Enter to send. |
@@ -235,7 +235,14 @@ Three ways:
 - Either chat: type the path in a message, for example `C:\path\to\brief.pdf summarize`.
 - Browser chat: attach it with the **+** button and say what you want. BuddyAI saves a copy in `data\uploads` and reads it from there.
 
-All three produce the same summary and task proposals. A file of any other type is refused with `UnsupportedFileTypeError`.
+All three produce the same summary and task proposals. A file of any other type is refused with `UnsupportedFileTypeError`, including the old Word format `.doc` (only `.docx` is supported).
+
+Word files are read differently from the other types. Gemini does not read `.docx` files directly, so `DocumentReader` opens the file with the standard library (`zipfile` and `xml.etree.ElementTree`, no new package), reads the text of the main body from `word/document.xml`, and sends it to the model as plain text, one line per paragraph. Text split across formatting runs is joined, tabs and line breaks are kept, each table cell comes out on its own line, and text deleted in tracked changes is left out. After that the file is handled like any other: the same summary prompt that treats the file as untrusted, the same note, proposed tasks that need your confirmation, and the same rule that a request which read a file cannot delete anything. A Word file is refused with `InvalidInputError`, before any model request, when:
+
+- it is not a readable `.docx` file (not a zip archive, or no `word/document.xml` inside);
+- its document body is larger than 20 MB;
+- it contains a DTD (`<!DOCTYPE`). Word never writes one, and refusing it shuts out XML entity tricks such as "billion laughs";
+- it has no text to summarize.
 
 How `@path` works in the terminal chat:
 
@@ -385,7 +392,7 @@ BuddyAI/
 │   ├── toolkit.py               BuddyToolkit: the tools the agents call
 │   ├── workspace.py             Workspace: owns the managers and saves and loads them
 │   ├── briefing.py              BriefingService and DailyBriefing: schedule, weather and headlines
-│   ├── document_reader.py       DocumentReader: summarizes PDF, PNG, JPG and TXT files
+│   ├── document_reader.py       DocumentReader: summarizes PDF, PNG, JPG, TXT and Word (.docx) files
 │   ├── web_lookup.py            WebLookup: stdlib-only weather (Open-Meteo), headlines and web search (Google News + Wikipedia)
 │   ├── model_catalog.py         ModelCatalog: the ordered list of models
 │   ├── model_limits.py          ModelLimitLog: remembers daily limits between runs
@@ -421,14 +428,14 @@ The `unittest` suite runs offline, with no API key. Model calls are replaced by 
 .\.venv\Scripts\python.exe -m unittest discover -s tests
 ```
 
-Add `-v` to list each test. Current result: `Ran 547 tests`, `OK`. The tests make no network requests: the web lookup uses an injected fetcher that returns stored replies.
+Add `-v` to list each test. Current result: `Ran 560 tests`, `OK`. The tests make no network requests: the web lookup uses an injected fetcher that returns stored replies.
 
 The tests cover:
 
 - the domain classes: urgency score, due dates, overlap, reminder repeats and status notes, saving and loading each item (`test_models.py`)
 - the managers: task ranking and lookup, conflicts, free slots, notes (`test_managers.py`)
 - storage and the exception hierarchy, including atomic writes and a corrupt file (`test_storage_and_workspace.py`)
-- `BuddyToolkit`, the agent profiles, the file reader and `BuddyApp`, including `BuddyApp.check_file` (`test_toolkit.py`, `test_profiles_and_app.py`, `test_document_reader.py`)
+- `BuddyToolkit`, the agent profiles, the file reader and `BuddyApp`, including `BuddyApp.check_file` and reading Word (`.docx`) files: the text sent to the model, text split across runs, table cells, tracked-change deletions, and the refusals for a file that is not a zip, a missing document body, no text and a DTD (`test_toolkit.py`, `test_profiles_and_app.py`, `test_document_reader.py`)
 - the fixes made after the Sprint 1 review, one behaviour per test (`test_sprint1_fixes.py`)
 - model switching, daily limits, retries and failover (`test_model_switching.py`, `test_model_limits.py`, `test_uploads_and_failover.py`)
 - editing and deleting: `Meeting.set_location`, `Agenda.update_meeting` (all or nothing, calendar-file meetings refused), `TaskManager.find_reminder`, finding completed tasks by title, `Notebook.find_note`, the toolkit tools `update_meeting`, `list_reminders`, `delete_reminder` and `delete_note`, saving the change to disk, and the honesty rule in every agent's instruction (`test_edit_and_delete.py`)
@@ -452,7 +459,7 @@ AI coding tools generated most of the Sprint 1 code from a brief that the team w
 - Chatting needs internet and a Gemini API key. The free tier has limits, and one chat message costs at least four model requests, so replies can be slow. The typed commands that change data (`/task`, `/meet`) and the instant views (`/brief`, `/tasks`, `/status`) work without the model; `/brief` still needs internet for its weather and headlines.
 - One user, with no accounts or sign-in. Run only one of the terminal chat and the browser chat at a time: each keeps its own copy of the data in memory.
 - The terminal chat is the interface that is built to be used. The browser chat (`adk web`) is a development view and has only the `/model` command.
-- Files must be PDF, PNG, JPG or TXT.
+- Files must be PDF, PNG, JPG, TXT or Word (`.docx`). The old Word format `.doc` is not supported. A `.docx` read covers the main body only: headers, footers, footnotes, comments and images are not read. Text in a text box is read once (Word keeps a second copy for older programs, which BuddyAI skips).
 - The typed commands cover tasks and meetings only (add, edit, delete, move, cancel, complete). Reminders and notes are changed through the chat. The typed commands take dates in ISO form only, for example `2026-11-30` or `2026-11-30T14:00`.
 - A meeting location cannot be cleared through the chat tool or `/meet edit`, because an empty field means "unchanged". Reminders cannot be edited, only added, listed and deleted. Notes cannot be edited, only added, searched and deleted. The weather and headlines in the daily briefing need an internet connection; without it those two sections show `Unavailable (...)`.
 - After a chat message that read a file, searched the web or built a briefing, deleting or cancelling is refused (`UnsafeDeletionError`) until the next chat message starts. The typed commands `/task delete` and `/meet cancel` are not affected, because each typed command starts a new request. Inside one `/live` session the refusal lasts until the session ends, because a voice session counts as one request: after a web search or briefing by voice, deletions must wait for the text chat.

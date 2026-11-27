@@ -9,7 +9,7 @@ Status values: **Done** (built and tested), **Planned (Sprint 2)** (not built ye
 | [US-01](#us-01-add-a-task-in-a-normal-sentence) | Add a task by typing a normal sentence | High | 1 | Done |
 | [US-02](#us-02-see-tasks-in-order-of-urgency) | See my tasks in order of urgency | High | 1 | Done |
 | [US-03](#us-03-schedule-a-meeting-and-be-warned-about-conflicts) | Schedule a meeting and be warned about conflicts | High | 1 | Done |
-| [US-04](#us-04-get-key-points-and-action-items-from-a-file) | Get key points and action items from a PDF or photo | Medium | 1 | Done |
+| [US-04](#us-04-get-key-points-and-action-items-from-a-file) | Get key points and action items from a PDF, photo or Word file | Medium | 1 | Done |
 | [US-05](#us-05-keep-my-data-between-sessions) | Keep my data between sessions | High | 1 | Done |
 | [US-06](#us-06-handle-errors-with-custom-exceptions) | Handle errors through custom exceptions | High | 1 | Done |
 | [US-07](#us-07-include-the-events-in-my-calendar-file) | Include the events in my calendar file | High | 2 | Done |
@@ -51,9 +51,10 @@ As a user, I want to schedule a meeting and be warned about conflicts so that I 
 
 ### US-04: Get key points and action items from a file
 
-As a user, I want to give BuddyAI a PDF or photo and get its key points and action items.
+As a user, I want to give BuddyAI a PDF, photo or Word file and get its key points and action items.
 
-- PDF, PNG, JPG and TXT files are accepted. Any other type raises `UnsupportedFileTypeError` before any model request (`tests/test_document_reader.py`).
+- PDF, PNG, JPG, TXT and Word (`.docx`) files are accepted. Any other type, including the old `.doc` format, raises `UnsupportedFileTypeError` before any model request (`tests/test_document_reader.py`).
+- Gemini does not read `.docx` files, so `DocumentReader` unpacks the file with the standard library, reads `word/document.xml` and sends the paragraph text as plain text, one line per paragraph. A file that is not a readable Word file, a document body over 20 MB, a document with a DTD and a document with no text are refused with `InvalidInputError` before any model request (`TestDocxReading` in `tests/test_document_reader.py`).
 - In the terminal chat a file is attached by writing `@path` inside an ordinary message, for example `Summarize @notes.txt and list the action items`; a path with spaces goes in double quotes. `CommandRouter.send` checks each file with `BuddyApp.check_file(path)` before any model request, so a missing file shows `InvalidInputError` and an unsupported type shows `UnsupportedFileTypeError`, and no request is made. A message that is only a mention asks for a summary, and `ana@example.com` or `@Ana` stay ordinary text (`tests/test_cli_commands.py`, `tests/test_cli_ui.py`, `tests/test_profiles_and_app.py`).
 - The summary and key points are saved as a note. The action items are held as proposals and are saved as tasks only after confirmation (`tests/test_document_reader.py`; see US-12).
 - Reading a file marks the request as having read untrusted text, so nothing can be deleted or cancelled in that request (`tests/test_untrusted_content_guard.py`).
