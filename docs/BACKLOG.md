@@ -1,6 +1,6 @@
 # Product Backlog and User Stories
 
-Status values: **Done** (built and tested), **Planned (Sprint 2)** (not built yet), and **Dropped** (removed from the project). Status is as of 2026-11-27.
+Status values: **Done** (built and tested) and **Dropped** (removed from the project). Status is as of 2026-11-27.
 
 ## Backlog
 
@@ -51,11 +51,11 @@ As a user, I want to schedule a meeting and be warned about conflicts so that I 
 
 ### US-04: Get key points and action items from a file
 
-As a user, I want to give BuddyAI a PDF, photo or Word file and get its key points and action items.
+As a user, I want to give BuddyAI a PDF, photo or Word file and get its key points and action items so that I do not have to read the whole file to find what I must do.
 
 - PDF, PNG, JPG, TXT and Word (`.docx`) files are accepted. Any other type, including the old `.doc` format, raises `UnsupportedFileTypeError` before any model request (`tests/test_document_reader.py`).
-- Gemini does not read `.docx` files, so `DocumentReader` unpacks the file with the standard library, reads `word/document.xml` and sends the paragraph text as plain text, one line per paragraph. A file that is not a readable Word file, a document body over 20 MB, a document with a DTD and a document with no text are refused with `InvalidInputError` before any model request (`TestDocxReading` in `tests/test_document_reader.py`).
-- In the terminal chat a file is attached by writing `@path` inside an ordinary message, for example `Summarize @notes.txt and list the action items`; a path with spaces goes in double quotes. `CommandRouter.send` checks each file with `BuddyApp.check_file(path)` before any model request, so a missing file shows `InvalidInputError` and an unsupported type shows `UnsupportedFileTypeError`, and no request is made. A message that is only a mention asks for a summary, and `ana@example.com` or `@Ana` stay ordinary text (`tests/test_cli_commands.py`, `tests/test_cli_ui.py`, `tests/test_profiles_and_app.py`).
+- Gemini does not read `.docx` files, so `DocumentReader` unpacks the file with the standard library, reads `word/document.xml` and sends the paragraph text as plain text, one line per paragraph. A file that is not a readable Word file (also a damaged or encrypted one), a document with a DTD and a document with no text are refused with `InvalidInputError` before any model request (`TestDocxReading` in `tests/test_document_reader.py`). A document body over 20 MB is refused the same way; this limit is enforced in `DocumentReader._extract_docx_text` but is not covered by a test. An empty file of any type is refused before any model request too (`tests/test_document_reader.py`).
+- In the terminal chat a file is attached by writing `@path` inside an ordinary message, for example `Summarize @notes.txt and list the action items`; a path with spaces goes in double quotes. `CommandRouter.send` checks each file with `BuddyApp.check_file(path)` before any model request, so a missing file shows `InvalidInputError` and an unsupported type shows `UnsupportedFileTypeError`, and no request is made. A word after `@` counts as a file only when it is quoted, ends in a supported file type, contains a folder separator or names a file that exists. A message that is only a mention asks for a summary, and `ana@example.com`, `@Ana` or `@ana.cruz` stay ordinary text (`tests/test_cli_commands.py`, `tests/test_cli_ui.py`, `tests/test_profiles_and_app.py`).
 - The summary and key points are saved as a note. The action items are held as proposals and are saved as tasks only after confirmation (`tests/test_document_reader.py`; see US-12).
 - Reading a file marks the request as having read untrusted text, so nothing can be deleted or cancelled in that request (`tests/test_untrusted_content_guard.py`).
 
@@ -127,7 +127,7 @@ As a user, I want suggested tasks to wait for my approval so that nothing is add
 As a user, I want BuddyAI to keep working when a Gemini model runs out of free requests so that a limit does not stop my work.
 
 - `ModelCatalog` holds an ordered list of models.
-- When the current model is used up, rate-limited or not responding, BuddyAI moves to the next usable one, answers the same message and says so (`tests/test_model_switching.py`, `tests/test_uploads_and_failover.py`).
+- When the current model is used up, rate-limited, not responding or not available for the API key, BuddyAI moves to the best usable model (the first in the list that still works), answers the same message and says so (`tests/test_model_switching.py`, `tests/test_uploads_and_failover.py`). A busy or per-minute mark lasts until the next message.
 - `/model` switches by hand, by number, by name or with `next`.
 - A daily limit is remembered in `data/model_limits.json` until Google's reset (`tests/test_model_limits.py`).
 
@@ -162,7 +162,7 @@ As a user, I want to change or remove the tasks, meetings, reminders and notes I
 
 - Meetings can be renamed or given a location with `BuddyToolkit.update_meeting(meeting, title="", location="")`. `Agenda.update_meeting` checks everything before it changes anything, so a bad title leaves the location unchanged. A meeting from a calendar file is refused with `ReadOnlySourceError`. An empty field means unchanged, so a location cannot be cleared this way (`tests/test_edit_and_delete.py`).
 - Reminders can be listed and deleted with `list_reminders` and `delete_reminder` (ID or title). Notes can be deleted with `delete_note` (ID or title); tasks proposed from that note stay. `TaskManager.find_reminder` and `Notebook.find_note` find an item by exact ID, then by exact or partial title, and an unclear title raises `AmbiguousItemError`. An unknown one raises `ReminderNotFoundError` or `NoteNotFoundError` (`tests/test_edit_and_delete.py`).
-- A completed task can be found by title when it is updated or deleted (`TaskManager.find_task(..., include_done=True)`). `complete_task` still looks at open tasks only (`tests/test_edit_and_delete.py`).
+- A completed task can be found by title when it is updated or deleted (`TaskManager.find_task(..., include_done=True)`), and an exact title wins over part of a title. `complete_task` still looks for a title among tasks that are not done yet, and a task that is already done is refused. Deleting a task also removes it from the note it was proposed from (`tests/test_edit_and_delete.py`).
 - Tasks and meetings also have typed commands (`/task edit`, `/task delete`, `/meet move`, `/meet edit`, `/meet cancel`; see US-14) (`tests/test_cli_commands.py`).
 - Every agent's instruction contains one honesty rule (`AgentProfile._honesty_rule()`): report a change as done only when a tool returned success for that exact change, and say BuddyAI cannot do it when no tool can. A live test on 2026-11-27 showed a model saying it had renamed a meeting when no tool existed. `tests/test_edit_and_delete.py` checks that every profile contains the rule. The rule is an instruction to the model, not a check in code.
 - After a request has read a file, web results or headlines, `delete_task`, `delete_reminder`, `cancel_meeting` and `delete_note` refuse with `UnsafeDeletionError` for the rest of that request. Adding and editing still work, and the user sends the deletion as its own message (`tests/test_untrusted_content_guard.py`).

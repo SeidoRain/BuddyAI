@@ -7,8 +7,14 @@ It writes six PNG files (300 dpi) next to this script:
     figure2_application_implemented.png  figure2_application_proposal.png
     figure3_interface_implemented.png    figure3_interface_proposal.png
 
-"implemented" shows only classes that exist in the code. "proposal" adds the
-planned Sprint 2 classes with a dashed border.
+Both sets show only classes that exist in the code, and the two files of each
+figure are identical. The "proposal" names are kept because the project
+proposal embeds those files; the technical documentation embeds the
+"implemented" ones.
+
+Notation: filled diamond composition, hollow diamond aggregation, hollow
+triangle inheritance (at the parent), solid arrow association (one class keeps
+a reference to the other), dashed arrow creation or use.
 
 To change a class, edit its entry in the CLASSES table below and run again.
 Boxes size themselves from their text. Where boxes sit and how the lines run
@@ -107,6 +113,7 @@ CLASSES = {
         attrs=["- _body: str", "- _action_items: list[Task]"],
         methods=[
             "+ add_action_item(task): None",
+            "+ remove_action_item(task): None",
             "+ is_due(now): bool",
             "+ summarize(): str",
             "+ priority_score(now): int",
@@ -145,8 +152,8 @@ CLASSES = {
             "+ update_meeting(meeting_id, title, location): Meeting",
             "+ find_meeting(id_or_title): Meeting",
             "+ cancel(meeting_id): Meeting",
-            "+ find_conflicts(meeting): list[Meeting]",
-            "+ find_free_slot(day, minutes): datetime",
+            "+ find_conflicts(meeting, exclude_id): list[Meeting]",
+            "+ find_free_slot(day, minutes, earliest, exclude_id, now): datetime",
             "+ set_external(meetings): None",
         ],
     ),
@@ -199,6 +206,7 @@ CLASSES = {
             "+ save_all(items): None",
             "+ save_item(item): None",
             "+ remove_item(item_id): None",
+            "- _parse_records(filename, records, parse): list[WorkItem]",
             "- _atomic_write(filepath, data): None",
         ],
     ),
@@ -251,6 +259,9 @@ CLASSES = {
             "+ save_upload(data, mime_type, name): str",
             "+ root_agent: Agent  {property}",
             "- _start_request(callback_context): None",
+            "- _start_new_message(text): None",
+            "- _note_failure(exc, model): tuple[str, str | None]",
+            "- _is_model_not_found(exc): bool  {static}",
         ],
     ),
     "AgentProfile": dict(
@@ -389,7 +400,12 @@ CLASSES = {
         ],
     ),
     "ModelCatalog": dict(
-        attrs=["- _names: list[str]", "- _current: str", "- _unavailable: dict[str, str]"],
+        attrs=[
+            '+ NOT_AVAILABLE: str = "not available for this API key"',
+            "- _names: list[str]",
+            "- _current: str",
+            "- _unavailable: dict[str, str]",
+        ],
         methods=[
             "+ current: str  {property}",
             "+ switch(choice): str",
@@ -417,6 +433,7 @@ CLASSES = {
             '+ EXIT: str = "exit"',
             '+ HANDLED: str = "handled"',
             '+ NOT_A_COMMAND: str = "not_a_command"',
+            "+ SPACES_HINT: str",
             "- _app: BuddyApp",
             "- _ui: TerminalUI",
             "- _commands: dict[str, Callable]",
@@ -426,8 +443,8 @@ CLASSES = {
             "+ handle(text): str",
             "+ send(prompt_text, files): None",
             "+ take_pending_input(): str",
-            "- _take_file_mentions(text): tuple[str, list[str]]",
-            "- _mentioned_path(match): tuple[str | None, str]",
+            "- _take_file_mentions(text): tuple[str, list[str]]  {classmethod}",
+            "- _mentioned_path(match): tuple[str | None, str]  {classmethod}",
             "- _unknown_command_text(word): str",
             "- _show_brief(arguments): None",
             "- _change_model(arguments): None",
@@ -496,7 +513,7 @@ CLASSES = {
         attrs=["- _path_completer: PathCompleter"],
         methods=[
             "+ get_completions(document, complete_event): Iterator[Completion]",
-            "- _mention_before_cursor(text): str | None",
+            "- _mention_before_cursor(text): str | None  {static}",
             "- _complete_path(typed, complete_event): Iterator[Completion]",
         ],
     ),
@@ -1100,8 +1117,8 @@ def figure3(planned):
     xt = ad.cx
     d.link([(xt, vt.bottom), (xt, ad.top)], end="open", dashed=True)
     d.label(xt + 8, (vt.bottom + ad.top) / 2, "uses")
-    # SoundDeviceAudio implements AudioDevice
-    d.link([(sd.cx, sd.top), (sd.cx, ad.bottom)], start="tri")
+    # SoundDeviceAudio extends AudioDevice (triangle at the parent)
+    d.link([(sd.cx, sd.top), (sd.cx, ad.bottom)], end="tri")
     return d
 
 
