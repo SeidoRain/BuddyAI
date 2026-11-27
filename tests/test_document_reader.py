@@ -203,6 +203,18 @@ class TestDocxReading(unittest.TestCase):
         self.reader.summarize(self.path)
         self.assertEqual(self._sent_text()[1], "Due Friday")
 
+    def test_a_text_box_is_read_once_not_from_its_fallback_copy(self):
+        mc = "http://schemas.openxmlformats.org/markup-compatibility/2006"
+        body = (
+            f'<w:p xmlns:mc="{mc}"><w:r><mc:AlternateContent>'
+            "<mc:Choice>" + _paragraph("Box text") + "</mc:Choice>"
+            "<mc:Fallback>" + _paragraph("Box text") + "</mc:Fallback>"
+            "</mc:AlternateContent></w:r></w:p>"
+        )
+        _write_docx(self.path, body)
+        self.reader.summarize(self.path)
+        self.assertEqual(self._sent_text()[1], "Box text")
+
     def test_the_note_is_named_after_the_word_file(self):
         _write_docx(self.path, _paragraph("Hello"))
         note = self.reader.summarize(self.path)

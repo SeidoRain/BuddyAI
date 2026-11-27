@@ -83,6 +83,9 @@ class DocumentReader:
     }
     # Every tag in a Word document's XML starts with this namespace.
     WORD_NAMESPACE = "{http://schemas.openxmlformats.org/wordprocessingml/2006/main}"
+    # Word stores a text box twice: once for new readers and once in this
+    # "fallback" copy for old ones. Only the first copy is read.
+    FALLBACK_TAG = "{http://schemas.openxmlformats.org/markup-compatibility/2006}Fallback"
     # A larger document body is refused rather than unpacked into memory.
     MAX_DOCX_XML_BYTES = 20_000_000
 
@@ -161,6 +164,8 @@ class DocumentReader:
     def _collect_paragraphs(self, node, lines, current):
         """Walk the Word XML in order, adding each finished paragraph to `lines`."""
         w = self.WORD_NAMESPACE
+        if node.tag == self.FALLBACK_TAG:
+            return
         if node.tag == f"{w}t":
             current.append(node.text or "")
         elif node.tag == f"{w}tab":
