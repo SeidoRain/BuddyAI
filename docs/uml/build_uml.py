@@ -373,10 +373,17 @@ CLASSES = {
         methods=["+ text: str  {property}", "+ level: str  {property}"],
     ),
     "DocumentReader": dict(
-        attrs=["- _model: str", "- _client: Client", "- _clock: callable"],
+        attrs=[
+            "+ SUPPORTED_TYPES: dict",
+            "+ DOCX_TYPE: str",
+            "- _model: str",
+            "- _client: Client",
+            "- _clock: callable",
+        ],
         methods=[
             "+ summarize(path, now): Note",
             "+ validate_file(path): tuple",
+            "- _extract_docx_text(path): str",
             "+ set_model(model): None",
             "+ extension_for(name, mime_type): str | None  {classmethod}",
         ],

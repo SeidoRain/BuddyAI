@@ -8,7 +8,7 @@ It is the semester capstone project of IT121AL (Computer Programming 2, object-o
 
 More documentation:
 
-- [Technical documentation](docs/submission/BuddyAI_Technical_Documentation.pdf)
+- [Technical documentation](docs/submission/BuddyAI_Technical_Documentation_v2.pdf)
 - [Project proposal](docs/submission/IT121AL_Project_Proposal_BuddyAI_v3.docx)
 - [Product backlog and user stories](docs/BACKLOG.md)
 - [UML diagrams](docs/uml/)
@@ -409,12 +409,10 @@ BuddyAI/
 │   ├── AI_USAGE.md              AI usage log
 │   ├── BACKLOG.md               Product backlog and user stories
 │   ├── submission/              The documents the team submits
-│   │   ├── BuddyAI_Technical_Documentation.pdf        Technical documentation (the Word file is beside it)
+│   │   ├── BuddyAI_Technical_Documentation_v2.pdf     Technical documentation, version 2.0 (the Word file is beside it)
 │   │   ├── IT121AL_Project_Proposal_BuddyAI_v3.docx   Project proposal, current version
 │   │   └── earlier_versions/    Earlier versions of the proposal
 │   └── uml/                     UML class diagrams (PNG) and the script that draws them
-├── SPRINT1_NOTES.md             Sprint 1 reviewer notes
-├── SPRINT2_NOTES.md             Sprint 2 reviewer notes and the follow-up on 2026-11-27
 └── data/                        Your JSON files, created on first run, not in git
 ```
 
@@ -452,7 +450,7 @@ Not applicable. BuddyAI has one user and no sign-in. The only secret is your Gem
 
 ## AI Usage Disclosure
 
-AI coding tools generated most of the Sprint 1 code from a brief that the team wrote. They also helped with design review, live testing, debugging, the terminal interface tests, the diagrams and the documents. The team reviewed the output, ran the tests, and corrected what was wrong; for example, a retry setting that made the chat freeze was removed and a manual-only model switch was replaced by automatic switching. On 2026-11-27 an AI review pointed out that the new delete tools could be reached after the agents read a file or web page, and a code guard was added. The unit tests run offline, so a passing result comes from running the code. The full log, with the tools used, what they suggested and what the team changed or verified, is in [docs/AI_USAGE.md](docs/AI_USAGE.md).
+AI coding tools generated most of the Sprint 1 code from written instructions that the team prepared. They also helped with design review, live testing, debugging, the terminal interface tests, the diagrams and the documents. The team reviewed the output, ran the tests, and corrected what was wrong; for example, a retry setting that made the chat freeze was removed and a manual-only model switch was replaced by automatic switching. On 2026-11-27 an AI review pointed out that the new delete tools could be reached after the agents read a file or web page, and a code guard was added. The unit tests run offline, so a passing result comes from running the code. The full log, with the tools used, what they suggested and what the team changed or verified, is in [docs/AI_USAGE.md](docs/AI_USAGE.md).
 
 ## Known Limitations
 
@@ -480,3 +478,5 @@ IT121AL, Computer Programming 2. Capstone project team:
 | Sarte | Lead Software Developer |
 | Bautista | Interface and Integrations Developer |
 | Quiros | Persistence and QA Engineer |
+
+All commits in the repository were made from the team lead's GitHub account. The section "Team and ownership" of the technical documentation shows which part of the code each member maintains and explains.
