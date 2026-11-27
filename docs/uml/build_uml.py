@@ -240,6 +240,7 @@ CLASSES = {
             "+ ask(message, files, on_status): str",
             "+ switch_model(choice): str",
             "+ handle_command(text): str | None",
+            "+ check_file(path): str",
             "+ run_model_command(text): CommandReply | None",
             "+ load_calendar(path): IcsCalendarSource",
             "+ unload_calendar(): bool",
@@ -418,6 +419,9 @@ CLASSES = {
             "+ handle(text): str",
             "+ send(prompt_text, files): None",
             "+ take_pending_input(): str",
+            "- _take_file_mentions(text): tuple[str, list[str]]",
+            "- _mentioned_path(match): tuple[str | None, str]",
+            "- _unknown_command_text(word): str",
             "- _show_brief(arguments): None",
             "- _change_model(arguments): None",
             "- _attach_file(arguments): None",
@@ -444,6 +448,7 @@ CLASSES = {
             "+ render_buddy_reply(text, agents, elapsed): None",
             "+ render_ok(text): None",
             "+ render_tasks(app): None",
+            "+ render_help(): None",
             "+ pick_model_interactive(app): str | None",
         ],
     ),
@@ -464,20 +469,29 @@ CLASSES = {
     ),
     "BuddyPrompt": dict(
         attrs=[
+            "+ SWITCH_NOTE_SECONDS: int = 30",
             "- _get_model_name: callable",
+            "- _clock: callable",
             "- _interactive: bool",
             "- _glyphs: dict[str, str]",
             "- _session: PromptSession",
+            "- _shown_model: str | None",
+            "- _switched_from: str",
+            "- _switched_at: float | None",
         ],
         methods=[
             "+ read_input(default): str",
+            "+ toolbar_text(): str",
             "+ interactive: bool  {property}",
-            "- _bottom_toolbar(): str",
         ],
     ),
     "BuddyCompleter": dict(
         attrs=["- _path_completer: PathCompleter"],
-        methods=["+ get_completions(document, complete_event): Iterator[Completion]"],
+        methods=[
+            "+ get_completions(document, complete_event): Iterator[Completion]",
+            "- _mention_before_cursor(text): str | None",
+            "- _complete_path(typed, complete_event): Iterator[Completion]",
+        ],
     ),
     "Completer": dict(external="prompt_toolkit"),
     "main.py": dict(
@@ -1049,7 +1063,7 @@ def figure3(planned):
     y = row3 + 40
     d.link([(ro.left, y), (ui.right, y)], end="open")
     d.label((ro.left + ui.right) / 2, y - 12, "_ui", ha="center")
-    # CommandRouter calls toolkit methods (/task, /meet, /done)
+    # CommandRouter calls toolkit methods (/task, /meet, /task done)
     x_tk = tk.x + 40
     d.link([(x_tk, ro.bottom), (x_tk, tk.top)], end="open", dashed=True)
     d.label(x_tk + 8, (ro.bottom + tk.top) / 2, "calls")
