@@ -54,6 +54,7 @@ As a user, I want to schedule a meeting and be warned about conflicts so that I 
 As a user, I want to give BuddyAI a PDF or photo and get its key points and action items.
 
 - PDF, PNG, JPG and TXT files are accepted. Any other type raises `UnsupportedFileTypeError` before any model request (`tests/test_document_reader.py`).
+- In the terminal chat a file is attached by writing `@path` inside an ordinary message, for example `Summarize @notes.txt and list the action items`; a path with spaces goes in double quotes. `CommandRouter.send` checks each file with `BuddyApp.check_file(path)` before any model request, so a missing file shows `InvalidInputError` and an unsupported type shows `UnsupportedFileTypeError`, and no request is made. A message that is only a mention asks for a summary, and `ana@example.com` or `@Ana` stay ordinary text (`tests/test_cli_commands.py`, `tests/test_cli_ui.py`, `tests/test_profiles_and_app.py`).
 - The summary and key points are saved as a note. The action items are held as proposals and are saved as tasks only after confirmation (`tests/test_document_reader.py`; see US-12).
 - Reading a file marks the request as having read untrusted text, so nothing can be deleted or cancelled in that request (`tests/test_untrusted_content_guard.py`).
 
@@ -141,9 +142,10 @@ As a user, I want to add a task or meeting with a typed command so that I can st
   - `/meet move <meeting> | <start> | <end>`
   - `/meet edit <meeting> | <title> | <location>` (an empty field keeps the old value)
   - `/meet cancel <meeting>`
-  - `/done <task id or title>`
+  - `/task done <task id or title>`
 - Invalid input shows the exception's class name and message, for example `InvalidDueDateError` or `SchedulingConflictError`, and nothing is saved. Missing parts print the usage lines.
-- A mistyped `/command` gets a warning and is not sent to the model.
+- A mistyped `/command` gets a warning and is not sent to the model. When it is close to a real command, the warning suggests it, for example "Unknown command /tsk. Did you mean /task? Type /help to see the commands." (`tests/test_cli_commands.py`).
+- `/help` lists the commands in groups: Session (`/help`, `/status`, `/clear`, `/model`, `/quit`), Your day (`/brief`, `/tasks`), Change data (no AI) (`/task`, `/meet`) and Input (`@path`, `/calendar`, `/live`, `/voice`), then says that anything else can be asked in plain language. The older names `/done`, `/file`, `/models` and `/exit` still work but are not listed and are not offered by autocomplete (`tests/test_cli_commands.py`, `tests/test_cli_ui.py`).
 - Reminders and notes have no typed commands; they are changed through the chat.
 
 ### US-15: Instant views of my day

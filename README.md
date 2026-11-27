@@ -24,11 +24,11 @@ Everything in this list works in the current version.
 - **BuddyAI Live & Voice-to-Text.** Use `/live` for two-way spoken conversation over ADK live streaming (`gemini-3.8-live`, speaker-safe echo guard by default, Space/Enter to interrupt, or `/live barge` for full-duplex headphones), and `/voice` to stream live speech-to-text word-by-word directly into the regular text chat prompt so you can review or edit before sending to whichever text model you chose. `/voice` always uses the fixed Live model `gemini-3.5-transcribe-live`; `/model` does not change it. `/live` shares the same coordinator, specialists, tools and workspace data as the text chat.
 - **Weather and web lookup.** Ask for current weather or recent news and facts in the text chat or in `/live`. The coordinator agent has two tools, `get_weather` and `search_web`, which call `WebLookup` (`buddyai/web_lookup.py`). `WebLookup` uses free public services that need no key (Open-Meteo for weather, Google News RSS and Wikipedia for search) and the Python standard library only. It needs an internet connection.
 - **Reminders.** One-off, daily and weekly reminders can be added, listed and deleted. A reminder scheduled for today stays in today's briefing even after its time has passed, marked `[time has passed]`.
-- **Notes and file summaries.** Save, search and delete notes. Give BuddyAI a PDF, PNG, JPG or TXT file and it saves a summary as a note. Deleting a note does not delete the tasks that were proposed from it.
+- **Notes and file summaries.** Save, search and delete notes. Give BuddyAI a PDF, PNG, JPG or TXT file and it saves a summary as a note. In the terminal chat you attach a file by writing `@path` in a message, and the file is checked before any model request. Deleting a note does not delete the tasks that were proposed from it.
 - **Proposals with confirmation.** Tasks suggested from a file are kept as proposals. They become tasks only after you say which ones to keep, and a confirmation is all-or-nothing.
 - **Daily briefing.** Today's (or another day's) meetings, tasks that are due or overdue, and reminders, plus the weather for a chosen time and place (`BUDDYAI_LOCATION`, `Manila` by default) and the top five Philippine news headlines with links. The weather and headline sections need an internet connection. Without it they show `Unavailable (...)` with the reason, and the schedule part still works.
 - **Automatic model switching.** When a Gemini model runs out of free requests, is rate-limited or does not respond, BuddyAI moves to the next usable model, answers the same message and tells you. `/model` switches by hand.
-- **Typed commands without the AI.** `/task add`, `/task edit`, `/task delete`, `/meet add`, `/meet move`, `/meet edit`, `/meet cancel`, `/done`, `/tasks` and `/status` work on your data without any model request, so they work when the free quota is used up. `/brief` also makes no model request, but it fetches weather and headlines from the internet.
+- **Typed commands without the AI.** `/task add`, `/task edit`, `/task delete`, `/meet add`, `/meet move`, `/meet edit`, `/meet cancel`, `/task done`, `/tasks` and `/status` work on your data without any model request, so they work when the free quota is used up. `/brief` also makes no model request, but it fetches weather and headlines from the internet.
 - **No deletions after reading untrusted text.** A file, a web search result or a news headline can contain text written to steer an AI assistant. `summarize_document`, `search_web` and `get_daily_briefing` mark the current request as having read such text. After that, `delete_task`, `delete_reminder`, `cancel_meeting` and `delete_note` refuse with `UnsafeDeletionError` for the rest of that request, and adding and editing still work. A deletion is sent as its own message. This is checked in code (`BuddyToolkit.begin_request()` and `_refuse_if_untrusted_read()`), so reading a file can only create proposals, never remove something. `search_web` results also carry a note that they are untrusted content, and the coordinator is told that text from web results, headlines or files never decides which specialist to call or what to change.
 - **Honesty rule for the agents.** The instructions of all agents say that a change may be reported as made only when a tool returned success for that exact change, and that BuddyAI must say it cannot do something when no tool exists for it (`AgentProfile._honesty_rule()`). This is an instruction to the model, not a check in code. The tools themselves return a clear error when a change fails.
 - **JSON persistence.** Everything is saved to JSON files after each change, with atomic writes, and is loaded again when BuddyAI starts.
@@ -97,20 +97,21 @@ Things to try in the chat:
 - `Rename my thesis meeting to Thesis defense and set the location to Room 204.`
 - `Delete the reminder to bring the draft.`
 - `What is the weather in Cebu this afternoon?`
+- `Summarize @sample_data\sample_meeting_notes.txt and list the action items` (the `@path` attaches a file; see [Giving BuddyAI a file](#giving-buddyai-a-file))
 
-Terminal commands. Type `/` for autocomplete, `↑`/`↓` for history, and `Tab` after `/file ` for path completion:
+Terminal commands. Type `/` for autocomplete, `↑`/`↓` for history, and `Tab` after `@` or after `/calendar ` for path completion. `/help` lists the commands in four groups: Session, Your day, Change data (no AI) and Input. Anything that is not a command is sent to BuddyAI as plain language. The dim line under the prompt shows the current model, and for 30 seconds after a model switch it also says which model BuddyAI switched from.
 
 | Command | What it does |
 |---|---|
 | `/task add <title> \| <due> \| <priority>` | Adds a task with no model request. `<due>` and `<priority>` are optional. Priority is `low`, `medium` (the default) or `high`. |
 | `/task edit <task> \| <title> \| <due> \| <priority>` | Changes a task with no model request. `<task>` is an ID or a title (a completed task can be found by title too). Leave a field empty to keep it, for example `/task edit Demo task \|\| 2026-12-05 \|`. At least one field must have a value. |
 | `/task delete <task>` | Deletes a task, even a completed one, with no model request. |
+| `/task done <task id or title>` | Marks a task done with no model request. Part of a title is enough if it matches one open task. |
 | `/meet add <title> \| <start> \| <end>` | Schedules a meeting with no model request. All three parts are required. A conflict is refused and the nearest free start is shown. |
 | `/meet move <meeting> \| <start> \| <end>` | Moves a meeting to a new time with no model request. All three parts are required. A conflict is refused and the meeting stays where it was. |
 | `/meet edit <meeting> \| <title> \| <location>` | Renames a meeting or sets its location with no model request. Leave a field empty to keep it. At least one field must have a value. |
 | `/meet cancel <meeting>` | Cancels a meeting with no model request. |
-| `/done <task id or title>` | Marks a task done with no model request. Part of a title is enough if it matches one open task. |
-| `/file <path> [message]` | Summarizes a PDF, PNG, JPG or TXT file and proposes tasks from it. The path may contain spaces; quotes are optional. |
+| `@path` inside a message | Attaches a PDF, PNG, JPG or TXT file to an ordinary message, for example `Summarize @notes.txt and list the action items`. A path with spaces goes in double quotes: `@"C:\Users\Juan Cruz\brief.pdf"`. See [Giving BuddyAI a file](#giving-buddyai-a-file). |
 | `/calendar [path \| off]` | Loads a read-only `.ics` calendar file, shows the currently loaded file and counts, or unloads it with `off`. |
 | `/live [barge]` | Starts BuddyAI Live two-way spoken conversation (speaker-safe by default; press Space/Enter to interrupt, or `/live barge` with headphones). |
 | `/voice` | Dictates speech into the regular text prompt (voice-to-text) so you can edit and press Enter to send. |
@@ -120,12 +121,14 @@ Terminal commands. Type `/` for autocomplete, `↑`/`↓` for history, and `Tab`
 | `/tasks` | Shows open tasks and pending proposals in a formatted table. |
 | `/status` | Shows active model, timezone, and workspace item counts. |
 | `/clear` | Clears the screen and re-renders the compact header. |
-| `/help` | Lists the commands. |
+| `/help` | Lists the commands in groups, then reminds you that anything else can be asked in plain language. |
 | `/quit` | Exits. |
 
 Dates in `/task add`, `/task edit`, `/meet add` and `/meet move` are written `YYYY-MM-DD`, `YYYY-MM-DDTHH:MM` or `YYYY-MM-DD HH:MM`. A task due date with no time means 23:59 on that day. A meeting needs a date and a time for both start and end. Words such as "tomorrow" are understood in the chat but not in these commands (only `/brief` accepts `today` and `tomorrow`). Times use the time zone in `BUDDYAI_TIMEZONE` (`Asia/Manila` by default).
 
-The `/task`, `/meet` and `/done` commands print a green line when they work and a red line with the error's class name when they do not, and a refused command saves nothing. Typing `/task` or `/meet` with no valid sub-command, or with missing parts, prints the usage lines. A first word that looks like a command but is not one, such as `/foo`, gets a warning and is not sent to the model.
+The `/task` and `/meet` commands print a green line when they work and a red line with the error's class name when they do not, and a refused command saves nothing. Typing `/task` or `/meet` with no valid sub-command, or with missing parts, prints the usage lines. A first word that looks like a command but is not one gets a warning and is not sent to the model. When it is close to a real command, the warning suggests it: `/tsk` gives "Unknown command /tsk. Did you mean /task? Type /help to see the commands."
+
+Four older names still work, but `/help` and autocomplete do not list them: `/done <task>` (the same as `/task done`), `/file <path> [message]` (the same as writing `@path`), `/models` (the same as `/model`) and `/exit` (the same as `/quit`).
 
 ### Changing and removing things
 
@@ -133,7 +136,7 @@ Tasks, meetings, reminders and notes can be removed through the chat, and tasks 
 
 | Item | Through the chat | Typed command |
 |---|---|---|
-| Task | update (title, due date, priority), complete, delete | `/task edit`, `/task delete`, `/done` |
+| Task | update (title, due date, priority), complete, delete | `/task edit`, `/task delete`, `/task done` |
 | Meeting | move, rename, change the location, cancel | `/meet move`, `/meet edit`, `/meet cancel` |
 | Reminder | add, list, delete | none |
 | Note | add, search, delete | none |
@@ -164,7 +167,7 @@ You> /tasks
 You> /meet add Clash | 2026-11-30 14:30 | 2026-11-30 15:30
 ✕ SchedulingConflictError: Meeting 'Clash' conflicts with 'Standup' (2026-11-30 14:00-15:00). Next free slot starts at 2026-11-30 15:00.
 Suggested free start: 2026-11-30 15:00
-You> /done Demo task
+You> /task done Demo task
 ✓ Completed task: Demo task (id: task-960a72fe)
 ```
 
@@ -172,7 +175,7 @@ The same conflict after the restart shows that the Standup meeting was loaded fr
 
 ### Sample data
 
-The `sample_data/` folder contains a generator script (`make_sample_data.py`), a committed read-only snapshot (`sample_data/example/`), and a short self-written meeting notes file (`sample_data/sample_meeting_notes.txt`) for testing `/file`.
+The `sample_data/` folder contains a generator script (`make_sample_data.py`), a committed read-only snapshot (`sample_data/example/`), and a short self-written meeting notes file (`sample_data/sample_meeting_notes.txt`) for testing file attachments with `@path`.
 
 To generate fresh sample data around today's date and start BuddyAI on it (in PowerShell, only for the current shell):
 
@@ -184,7 +187,7 @@ $env:BUDDYAI_DATA_DIR = "sample_data\generated"
 
 `sample_data/example/` is a fixed-date snapshot for reading the file format only; do not point `BUDDYAI_DATA_DIR` at it because BuddyAI writes back to the data folder on every change.
 
-To test document summarization without an external PDF, run `/file sample_data\sample_meeting_notes.txt` inside the terminal chat.
+To test document summarization without an external PDF, type `Summarize @sample_data\sample_meeting_notes.txt and list the action items` inside the terminal chat. This needs the model, so it is not part of the demo without the AI model.
 
 ### Calendar file
 
@@ -228,11 +231,18 @@ BuddyAI supports two distinct voice workflows, both sharing the same workspace d
 
 Three ways:
 
-- Terminal: `/file C:\path\to\brief.pdf`.
+- Terminal: write `@path` inside an ordinary message, for example `Summarize @sample_data\sample_meeting_notes.txt and list the action items`. A path with spaces goes in double quotes: `@"C:\Users\Juan Cruz\brief.pdf"`. `Tab` completes the path after `@`.
 - Either chat: type the path in a message, for example `C:\path\to\brief.pdf summarize`.
 - Browser chat: attach it with the **+** button and say what you want. BuddyAI saves a copy in `data\uploads` and reads it from there.
 
-All three go through the same file check and produce the same summary and task proposals. A file of any other type is refused with `UnsupportedFileTypeError`.
+All three produce the same summary and task proposals. A file of any other type is refused with `UnsupportedFileTypeError`.
+
+How `@path` works in the terminal chat:
+
+- Only an `@` at the start of a word counts, and only if the word is in quotes, has a file extension or contains a folder separator. So `ana@example.com` and `@Ana` stay ordinary text.
+- The mention is replaced by the file name in the message that is sent. A message that is only a mention asks BuddyAI to summarize the file and list suggested action items. Punctuation right after a mention, as in `@notes.txt,`, is not part of the path.
+- Each file is checked before any model request, so a mistake costs no request. A missing file shows a red `InvalidInputError` line and a file of an unsupported type shows a red `UnsupportedFileTypeError` line. The type is checked first, so a missing file with an unsupported extension shows `UnsupportedFileTypeError`.
+- A message can hold more than one `@path`.
 
 Tasks suggested from a file are proposals. They become real tasks only after you tell BuddyAI which ones to keep.
 
@@ -386,7 +396,7 @@ BuddyAI/
 │                                test_untrusted_content_guard.py covers the no-deletion rule
 ├── sample_data/                 Sample data generator and demonstration files
 │   ├── make_sample_data.py      Generates sample JSON files and sample_calendar.ics around today's date
-│   ├── sample_meeting_notes.txt Sample TXT document for the /file command
+│   ├── sample_meeting_notes.txt Sample TXT document for the @path demo
 │   └── example/                 Fixed-date snapshot of JSON files and sample_calendar.ics (read-only reference)
 ├── docs/
 │   ├── AI_USAGE.md              AI usage log
@@ -401,7 +411,7 @@ BuddyAI/
 └── data/                        Your JSON files, created on first run, not in git
 ```
 
-The code is in layers. The domain classes in `models/` do not use the agents or the model. The managers in `managers/` hold the rules, such as the conflict check and the ranking. `Workspace` owns the managers and saves and loads them through a `DataSource`. `BuddyToolkit` is the one class the agents call, and it turns every error into a message instead of crashing. `BuddyApp` connects the agents, the toolkit and the model list, and `main.py` with the `cli/` package is the terminal interface. The typed `/task`, `/meet` and `/done` commands call the same `BuddyToolkit` methods as the agents, so the same rules apply.
+The code is in layers. The domain classes in `models/` do not use the agents or the model. The managers in `managers/` hold the rules, such as the conflict check and the ranking. `Workspace` owns the managers and saves and loads them through a `DataSource`. `BuddyToolkit` is the one class the agents call, and it turns every error into a message instead of crashing. `BuddyApp` connects the agents, the toolkit and the model list, and `main.py` with the `cli/` package is the terminal interface. The typed `/task` and `/meet` commands call the same `BuddyToolkit` methods as the agents, so the same rules apply.
 
 ## Testing
 
@@ -411,19 +421,19 @@ The `unittest` suite runs offline, with no API key. Model calls are replaced by 
 .\.venv\Scripts\python.exe -m unittest discover -s tests
 ```
 
-Add `-v` to list each test. Current result: `Ran 518 tests`, `OK`. The tests make no network requests: the web lookup uses an injected fetcher that returns stored replies.
+Add `-v` to list each test. Current result: `Ran 547 tests`, `OK`. The tests make no network requests: the web lookup uses an injected fetcher that returns stored replies.
 
 The tests cover:
 
 - the domain classes: urgency score, due dates, overlap, reminder repeats and status notes, saving and loading each item (`test_models.py`)
 - the managers: task ranking and lookup, conflicts, free slots, notes (`test_managers.py`)
 - storage and the exception hierarchy, including atomic writes and a corrupt file (`test_storage_and_workspace.py`)
-- `BuddyToolkit`, the agent profiles, the file reader and `BuddyApp` (`test_toolkit.py`, `test_profiles_and_app.py`, `test_document_reader.py`)
+- `BuddyToolkit`, the agent profiles, the file reader and `BuddyApp`, including `BuddyApp.check_file` (`test_toolkit.py`, `test_profiles_and_app.py`, `test_document_reader.py`)
 - the fixes made after the Sprint 1 review, one behaviour per test (`test_sprint1_fixes.py`)
 - model switching, daily limits, retries and failover (`test_model_switching.py`, `test_model_limits.py`, `test_uploads_and_failover.py`)
 - editing and deleting: `Meeting.set_location`, `Agenda.update_meeting` (all or nothing, calendar-file meetings refused), `TaskManager.find_reminder`, finding completed tasks by title, `Notebook.find_note`, the toolkit tools `update_meeting`, `list_reminders`, `delete_reminder` and `delete_note`, saving the change to disk, and the honesty rule in every agent's instruction (`test_edit_and_delete.py`)
 - the rule that a request which read a file or web content cannot delete anything, and when `BuddyApp` starts a new request (`test_untrusted_content_guard.py`)
-- the terminal commands, including `/task add`, `/task edit`, `/task delete`, `/meet add`, `/meet move`, `/meet edit`, `/meet cancel`, `/done`, `/brief` with a day, time and place, usage messages, and unknown commands (`test_cli_commands.py`), and the terminal output (`test_cli_ui.py`)
+- the terminal commands, including `/task add`, `/task edit`, `/task delete`, `/meet add`, `/meet move`, `/meet edit`, `/meet cancel`, `/task done`, `/brief` with a day, time and place, usage messages, unknown commands with a suggestion, the grouped `/help`, and `@path` file mentions with their file check (`test_cli_commands.py`), and the terminal output and the autocomplete of commands and of paths after `@` (`test_cli_ui.py`)
 - sample data generation, corrupt-file startup handling, and relative path settings (`test_sample_data.py`, `test_main_startup.py`, `test_config.py`)
 - iCalendar (`.ics`) parsing, read-only conflict/briefing integration, and the `/calendar` command (`test_ics_calendar_source.py`, `test_calendar_integration.py`, `test_calendar_command.py`)
 - BuddyAI Live audio loops, speaker-safe echo guard, interruption recovery, spoken stop, specialist delegation, `/voice` live streaming dictation (`VoiceTranscriber`), lazy `sounddevice` handling, and `/live` (`test_voice_session.py`, `test_voice_audio_device.py`)
@@ -439,7 +449,7 @@ AI coding tools generated most of the Sprint 1 code from a brief that the team w
 
 ## Known Limitations
 
-- Chatting needs internet and a Gemini API key. The free tier has limits, and one chat message costs at least four model requests, so replies can be slow. The typed commands that change data (`/task`, `/meet`, `/done`) and the instant views (`/brief`, `/tasks`, `/status`) work without the model; `/brief` still needs internet for its weather and headlines.
+- Chatting needs internet and a Gemini API key. The free tier has limits, and one chat message costs at least four model requests, so replies can be slow. The typed commands that change data (`/task`, `/meet`) and the instant views (`/brief`, `/tasks`, `/status`) work without the model; `/brief` still needs internet for its weather and headlines.
 - One user, with no accounts or sign-in. Run only one of the terminal chat and the browser chat at a time: each keeps its own copy of the data in memory.
 - The terminal chat is the interface that is built to be used. The browser chat (`adk web`) is a development view and has only the `/model` command.
 - Files must be PDF, PNG, JPG or TXT.
@@ -447,7 +457,7 @@ AI coding tools generated most of the Sprint 1 code from a brief that the team w
 - A meeting location cannot be cleared through the chat tool or `/meet edit`, because an empty field means "unchanged". Reminders cannot be edited, only added, listed and deleted. Notes cannot be edited, only added, searched and deleted. The weather and headlines in the daily briefing need an internet connection; without it those two sections show `Unavailable (...)`.
 - After a chat message that read a file, searched the web or built a briefing, deleting or cancelling is refused (`UnsafeDeletionError`) until the next chat message starts. The typed commands `/task delete` and `/meet cancel` are not affected, because each typed command starts a new request. Inside one `/live` session the refusal lasts until the session ends, because a voice session counts as one request: after a web search or briefing by voice, deletions must wait for the text chat.
 - On the Gemini free tier, Google may use the content you send to improve its products, so use only sample data.
-- `buddyai/app.py` is the largest file (about 840 lines: session handling, model failover, uploads) and the hardest part to maintain.
+- `buddyai/app.py` is the largest file (about 855 lines: session handling, model failover, uploads) and the hardest part to maintain.
 - Calendar file (`.ics`) reading does not expand recurring rules (`RRULE`, first occurrence only), skips all-day (`VALUE=DATE`) and `DURATION`-only events, skips non-IANA Windows timezone names, does not filter `STATUS:CANCELLED` events, and reads the file only when loaded (run `/calendar <path>` again after editing it).
 - Voice modes (`/live` and `/voice`) need internet, a Gemini API key (Live-capable for `/live`), and working audio hardware; `/live` uses speaker-safe mic gating by default (press Space/Enter to interrupt) and supports `/live barge` for full-duplex headphones; each spoken request in `/live` that delegates to a specialist still uses text-model requests; and `/live` keeps its own conversation history separate from the text chat (while sharing the same workspace data).
 - Windows launchers only. On another system, use the commands under [Running without the launchers](#running-without-the-launchers).
