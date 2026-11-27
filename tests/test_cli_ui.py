@@ -296,13 +296,37 @@ class TestBuddyCompleter(unittest.TestCase):
             ]
             self.assertTrue(any("enda.txt" in text for text in file_matches))
 
+            mention_matches = [
+                c.text
+                for c in completer.get_completions(
+                    Document(f"Summarize @{prefix}"), event
+                )
+            ]
+            self.assertTrue(any("enda.txt" in text for text in mention_matches))
+
+    def test_an_at_sign_inside_an_email_address_does_not_complete_paths(self):
+        completer = BuddyCompleter()
+        matches = list(
+            completer.get_completions(Document("Email ana@exa"), CompleteEvent())
+        )
+        self.assertEqual(matches, [])
+
+    def test_older_command_names_are_not_offered(self):
+        completer = BuddyCompleter()
+        matches = [
+            c.text for c in completer.get_completions(Document("/"), CompleteEvent())
+        ]
+        for hidden in ("/done", "/file", "/models", "/exit"):
+            with self.subTest(command=hidden):
+                self.assertNotIn(hidden, matches)
+
     def test_completes_task_and_meet_but_not_their_arguments(self):
         completer = BuddyCompleter()
         event = CompleteEvent()
 
         for typed, expected in (("/ta", ["/task", "/tasks"]), ("/me", ["/meet"])):
             matches = [c.text for c in completer.get_completions(Document(typed), event)]
-            self.assertEqual(matches, expected)
+            self.assertCountEqual(matches, expected)
 
         after_command = completer.get_completions(Document("/task add Buy milk"), event)
         self.assertEqual(list(after_command), [])

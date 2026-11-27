@@ -40,6 +40,9 @@ class _FakeApp:
         self.asked.append((message, files))
         return "model reply"
 
+    def check_file(self, path):
+        return DocumentReader(model="gemini-4-hydrogen").validate_file(path)[0]
+
 
 class _RouterTestCase(unittest.TestCase):
     """Builds a router on a temporary data folder with a fixed clock."""
@@ -94,7 +97,7 @@ class TestRouting(_RouterTestCase):
 
     def test_a_known_command_is_handled(self):
         self.assertEqual(self.router.handle("/help"), CommandRouter.HANDLED)
-        self.assertIn("add | edit | delete a task", self.output())
+        self.assertIn("add | edit | delete | done a task", self.output())
 
     def test_command_words_ignore_capital_letters(self):
         self.assertEqual(self.router.handle("/HELP"), CommandRouter.HANDLED)
@@ -506,6 +509,126 @@ class TestUsageText(_RouterTestCase):
         self.assertEqual(self.workspace.tasks.list_all_tasks(), [])
 
 
+class TestTaskDone(_RouterTestCase):
+    def setUp(self):
+        super().setUp()
+        self.app.toolkit.add_task("Write report", due="2026-12-01", priority="high")
+        self.task = self.workspace.tasks.find_task("Write report")
+
+    def test_task_done_marks_the_task_done_by_title(self):
+        self.router.handle("/task done Write report")
+        self.assertEqual(self.task.status, "done")
+
+    def test_task_done_shows_the_completed_task(self):
+        self.router.handle("/task done Write report")
+        self.assertIn(f"Completed task: Write report (id: {self.task.item_id})", self.output())
+
+    def test_task_done_without_a_task_shows_usage(self):
+        self.router.handle("/task done")
+        self.assertIn("/task done <task>", self.output())
+        self.assertEqual(self.task.status, "open")
+
+
+class TestFileMentions(_RouterTestCase):
+    """Checks that @path in a message attaches a file and is checked first."""
+
+    def setUp(self):
+        super().setUp()
+        folder = os.path.join(self._tmp.name, "Juan Cruz")
+        os.makedirs(folder)
+        self.path = os.path.join(folder, "meeting notes.txt")
+        with open(self.path, "w", encoding="utf-8") as handle:
+            handle.write("notes")
+        self.short_path = os.path.join(self._tmp.name, "notes.txt")
+        with open(self.short_path, "w", encoding="utf-8") as handle:
+            handle.write("notes")
+
+    def test_a_mention_is_replaced_by_the_file_name_in_the_message(self):
+        message, paths = CommandRouter._take_file_mentions(
+            f"Summarize @{self.short_path} please"
+        )
+        self.assertEqual(message, "Summarize notes.txt please")
+        self.assertEqual(paths, [self.short_path])
+
+    def test_a_quoted_mention_may_contain_spaces(self):
+        message, paths = CommandRouter._take_file_mentions(f'Read @"{self.path}"')
+        self.assertEqual(paths, [self.path])
+        self.assertEqual(message, "Read meeting notes.txt")
+
+    def test_punctuation_after_a_mention_is_not_part_of_the_path(self):
+        message, paths = CommandRouter._take_file_mentions(
+            f"Read @{self.short_path}, then list tasks."
+        )
+        self.assertEqual(paths, [self.short_path])
+        self.assertEqual(message, "Read notes.txt, then list tasks.")
+
+    def test_a_message_that_is_only_a_mention_becomes_empty(self):
+        message, paths = CommandRouter._take_file_mentions(f"@{self.short_path}")
+        self.assertEqual((message, paths), ("", [self.short_path]))
+
+    def test_an_email_address_is_not_a_file_mention(self):
+        text = "Email ana@example.com about the report"
+        self.assertEqual(CommandRouter._take_file_mentions(text), (text, []))
+
+    def test_a_name_without_an_extension_is_not_a_file_mention(self):
+        text = "Remind @Ana about the meeting"
+        self.assertEqual(CommandRouter._take_file_mentions(text), (text, []))
+
+    def test_a_mention_sends_the_absolute_path_to_the_model(self):
+        self.router.send(f"Summarize @{self.short_path}")
+        self.assertEqual(
+            self.app.asked, [("Summarize notes.txt", [os.path.abspath(self.short_path)])]
+        )
+
+    def test_a_missing_file_shows_the_error_and_asks_nothing(self):
+        self.router.send(f"Summarize @{os.path.join(self._tmp.name, 'gone.pdf')}")
+        self.assertIn("InvalidInputError", self.output())
+        self.assertEqual(self.app.asked, [])
+
+    def test_an_unsupported_file_shows_the_error_and_asks_nothing(self):
+        self.router.send(f"Summarize @{os.path.join(self._tmp.name, 'report.docx')}")
+        self.assertIn("UnsupportedFileTypeError", self.output())
+        self.assertEqual(self.app.asked, [])
+
+    def test_a_message_without_mentions_is_sent_unchanged(self):
+        self.router.send("What is due today?")
+        self.assertEqual(self.app.asked, [("What is due today?", None)])
+
+
+class TestHelpAndTypos(_RouterTestCase):
+    def test_help_groups_the_commands(self):
+        self.router.handle("/help")
+        for group in ("Session", "Your day", "Change data (no AI)", "Input"):
+            with self.subTest(group=group):
+                self.assertIn(group, self.output())
+
+    def test_help_lists_file_mentions_instead_of_the_file_command(self):
+        self.router.handle("/help")
+        self.assertIn("@path", self.output())
+        self.assertNotIn("/file", self.output())
+
+    def test_help_still_lists_voice(self):
+        self.router.handle("/help")
+        self.assertIn("/voice", self.output())
+
+    def test_a_mistyped_command_suggests_the_closest_one(self):
+        self.router.handle("/tsk add Buy milk")
+        self.assertIn("Did you mean /task?", self.output())
+
+    def test_a_mistyped_command_is_not_sent_to_the_model(self):
+        self.router.handle("/tsk add Buy milk")
+        self.assertEqual(self.app.asked, [])
+
+    def test_an_unknown_word_far_from_any_command_gets_no_suggestion(self):
+        self.router.handle("/xyzzy")
+        self.assertNotIn("Did you mean", self.output())
+
+    def test_older_command_names_still_work(self):
+        self.app.toolkit.add_task("Write report")
+        self.router.handle("/done Write report")
+        self.assertEqual(self.workspace.tasks.find_task("Write report", include_done=True).status, "done")
+
+
 class TestDone(_RouterTestCase):
     def setUp(self):
         super().setUp()
@@ -539,7 +662,7 @@ class TestDone(_RouterTestCase):
 
     def test_done_without_a_task_shows_usage(self):
         self.assertEqual(self.router.handle("/done"), CommandRouter.HANDLED)
-        self.assertIn("Usage: /done <task id or title>", self.output())
+        self.assertIn("Usage: /task done <task id or title>", self.output())
 
 
 class TestFileCommand(_RouterTestCase):
@@ -575,7 +698,7 @@ class TestFileCommand(_RouterTestCase):
 
     def test_file_without_a_path_shows_usage_and_asks_nothing(self):
         self.assertEqual(self.router.handle("/file"), CommandRouter.HANDLED)
-        self.assertIn("Usage: /file <path>", self.output())
+        self.assertIn("write @path inside your message", self.output())
         self.assertEqual(self.app.asked, [])
 
     def test_file_with_a_path_sends_the_file_and_message_to_the_model(self):

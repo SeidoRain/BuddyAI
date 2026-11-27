@@ -17,9 +17,9 @@ from rich.text import Text
 
 from buddyai.cli.theme import (
     AGENT_STATUS_LABELS,
+    COMMAND_GROUPS,
     MODEL_HINTS,
     RICH_THEME,
-    SLASH_COMMANDS,
     build_mascot,
     glyphs_for,
     supports_unicode,
@@ -374,7 +374,7 @@ class TerminalUI:
         return state["result"]
 
     def render_help(self):
-        """Render the formatted slash-command reference table."""
+        """Render the commands grouped by purpose, then a plain-language hint."""
         table = Table(
             title=f"{self._glyphs['spark']} Commands",
             title_style="buddy.header",
@@ -384,9 +384,14 @@ class TerminalUI:
         )
         table.add_column("Command", style="bright_white", no_wrap=True)
         table.add_column("Description", style="buddy.text")
-        for cmd, desc in SLASH_COMMANDS:
-            table.add_row(cmd, desc)
+        for group_index, (group, commands) in enumerate(COMMAND_GROUPS):
+            if group_index:
+                table.add_section()
+            table.add_row(Text(group, style="buddy.header"), "")
+            for cmd, desc in commands:
+                table.add_row(f"  {cmd}", desc)
         self._console.print(table)
+        self.render_muted("Anything else: just ask in plain language.")
 
     def render_status(self, app):
         """Render current session and workspace counts."""

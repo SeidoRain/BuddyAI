@@ -1,4 +1,4 @@
-"""Prompt handling, slash-command autocomplete, and /file path completion."""
+"""Prompt handling, slash-command autocomplete, and @path file completion."""
 
 import sys
 
@@ -12,24 +12,39 @@ from buddyai.cli.theme import SLASH_COMMANDS, glyphs_for
 
 
 class BuddyCompleter(Completer):
-    """Completes `/` commands and local file paths after `/file `."""
+    """Completes `/` commands, and file paths after `@`, `/file ` or `/calendar `."""
 
     def __init__(self):
         self._path_completer = PathCompleter(expanduser=True)
 
+    @staticmethod
+    def _mention_before_cursor(text):
+        """Return the path typed after an @ that starts the last word, or None."""
+        at = text.rfind("@")
+        if at == -1 or (at > 0 and not text[at - 1].isspace()):
+            return None
+        typed = text[at + 1:]
+        if typed.startswith('"'):
+            # Inside quotes a path may hold spaces, until the closing quote.
+            return None if typed.count('"') > 1 else typed[1:]
+        return None if " " in typed else typed
+
+    def _complete_path(self, typed, complete_event):
+        sub_doc = Document(text=typed, cursor_position=len(typed))
+        yield from self._path_completer.get_completions(sub_doc, complete_event)
+
     def get_completions(self, document, complete_event):
         text = document.text_before_cursor
+        mention = self._mention_before_cursor(text)
+        if mention is not None:
+            yield from self._complete_path(mention, complete_event)
+            return
         if not text.startswith("/"):
             return
 
         for path_prefix in ("/file ", "/calendar "):
             if text.lower().startswith(path_prefix):
-                remainder = text[len(path_prefix):]
-                sub_doc = Document(text=remainder, cursor_position=len(remainder))
-                for completion in self._path_completer.get_completions(
-                    sub_doc, complete_event
-                ):
-                    yield completion
+                yield from self._complete_path(text[len(path_prefix):], complete_event)
                 return
 
         prefix = text.lower()
@@ -83,7 +98,7 @@ class BuddyPrompt:
         dot = self._glyphs["dot"]
         model = self._get_model_name()
         return (
-            f"  {model}  {bar}  /model  /file  /brief  /tasks  /help  {bar}  "
+            f"  {model}  {bar}  /model  @file  /brief  /tasks  /help  {bar}  "
             f"Ctrl+C cancel {dot} /quit"
         )
 

@@ -1,6 +1,7 @@
 """CommandRouter: turns one line typed in the terminal chat into an action."""
 
 from datetime import datetime, timedelta
+import difflib
 import os
 import re
 
@@ -13,8 +14,9 @@ from buddyai.exceptions import BuddyError, InvalidInputError
 class CommandRouter:
     """Decides whether a typed line is a command and runs it.
 
-    /task, /meet and /done call the same BuddyToolkit methods that the agents
-    call, so the same rules apply, but they make no request to the model.
+    /task and /meet call the same BuddyToolkit methods that the agents call,
+    so the same rules apply, but they make no request to the model. A file is
+    attached by writing @path inside an ordinary message.
     """
 
     # The three answers handle() can give.
@@ -25,12 +27,19 @@ class CommandRouter:
     # A first word such as /foo looks like a command; /home/me/file.pdf does not.
     _LOOKS_LIKE_COMMAND = re.compile(r"^/[a-z]+$", re.IGNORECASE)
 
+    # An @ at the start of a word, then a quoted path or a path without spaces.
+    # An @ inside a word (ana@example.com) is not a file mention.
+    _FILE_MENTION = re.compile(r'(?<!\S)@(?:"([^"]+)"|(\S+))')
+    # Punctuation that ends a sentence, not a path ("Read @notes.txt, please").
+    _TRAILING_PUNCTUATION = ",;:!?)."
+
     TASK_USAGE = (
         "Usage:\n"
         "  /task add <title> | <due> | <priority>   (due and priority are optional)\n"
         "  /task edit <task> | <title> | <due> | <priority>   "
         "(leave a field empty to keep it)\n"
-        "  /task delete <task>"
+        "  /task delete <task>\n"
+        "  /task done <task>"
     )
     MEET_USAGE = (
         "Usage:\n"
@@ -41,14 +50,19 @@ class CommandRouter:
         "(leave a field empty to keep it)\n"
         "  /meet cancel <meeting>"
     )
-    DONE_USAGE = "Usage: /done <task id or title>"
-    FILE_USAGE = "Usage: /file <path> (an optional message may follow the path)"
+    DONE_USAGE = "Usage: /task done <task id or title>"
+    FILE_USAGE = (
+        "Usage: write @path inside your message, for example: "
+        "Summarize @notes.txt (put a path with spaces in quotes)"
+    )
 
     def __init__(self, app, ui):
         self._app = app
         self._ui = ui
         self._pending_input = ""
-        # Maps each command word to the method that runs it.
+        # Maps each command word to the method that runs it. /exit, /models,
+        # /file and /done are older names: they still work, but /help and
+        # autocomplete do not list them.
         self._commands = {
             "/quit": self._quit,
             "/exit": self._quit,
@@ -90,14 +104,69 @@ class CommandRouter:
 
         # A mistyped command must not be sent to the model.
         if self._LOOKS_LIKE_COMMAND.match(first_word):
-            self._ui.render_warn(
-                f"Unknown command {first_word}. Type /help to see the commands."
-            )
+            self._ui.render_warn(self._unknown_command_text(first_word))
             return self.HANDLED
         return self.NOT_A_COMMAND
 
+    def _unknown_command_text(self, word):
+        """Say the command is unknown and suggest the closest real one."""
+        close = difflib.get_close_matches(word.lower(), self._commands, n=1, cutoff=0.6)
+        hint = f" Did you mean {close[0]}?" if close else ""
+        return f"Unknown command {word}.{hint} Type /help to see the commands."
+
+    @classmethod
+    def _take_file_mentions(cls, text):
+        """Split `Summarize @notes.txt` into the message and the mentioned paths.
+
+        A word after @ counts as a file only if it is quoted, has an extension
+        or contains a folder separator, so "@Ana" stays ordinary text. Each
+        mention is replaced by the file's name. If the message holds nothing
+        but mentions, the message becomes empty and BuddyApp asks for a summary.
+        """
+        paths = []
+
+        def _with_name(match):
+            path, trailing = cls._mentioned_path(match)
+            if path is None:
+                return match.group(0)
+            paths.append(path)
+            return os.path.basename(path) + trailing
+
+        def _without_files(match):
+            path, trailing = cls._mentioned_path(match)
+            return match.group(0) if path is None else trailing
+
+        message = cls._FILE_MENTION.sub(_with_name, text)
+        other_words = cls._FILE_MENTION.sub(_without_files, text)
+        if paths and not other_words.strip(" " + cls._TRAILING_PUNCTUATION):
+            message = ""
+        return message.strip(), paths
+
+    @classmethod
+    def _mentioned_path(cls, match):
+        """Return (path, trailing punctuation) for an @ mention, or (None, "")."""
+        quoted, bare = match.group(1), match.group(2)
+        if quoted is not None:
+            return quoted.strip(), ""
+        path = bare.rstrip(cls._TRAILING_PUNCTUATION)
+        looks_like_path = os.path.splitext(path)[1] or "/" in path or "\\" in path
+        if not path or not looks_like_path:
+            return None, ""
+        return path, bare[len(path):]
+
     def send(self, prompt_text, files=None):
-        """Run one chat turn with a live thinking indicator and Ctrl+C handling."""
+        """Run one chat turn with a live thinking indicator and Ctrl+C handling.
+
+        Files come from /file or from @path mentions in the text. Each one is
+        checked before the model is asked, so a wrong path costs no request.
+        """
+        if files is None:
+            prompt_text, files = self._take_file_mentions(prompt_text)
+        try:
+            files = [self._app.check_file(path) for path in files] or None
+        except BuddyError as exc:
+            self._ui.render_error(f"{type(exc).__name__}: {exc}")
+            return
         try:
             with self._ui.thinking_context() as indicator:
                 reply = self._app.ask(
@@ -408,13 +477,14 @@ class CommandRouter:
     # text read by an earlier chat message cannot block it.
 
     def _task_command(self, arguments):
-        """Handle `/task add`, `/task edit` and `/task delete`."""
+        """Handle `/task add`, `/task edit`, `/task delete` and `/task done`."""
         self._app.toolkit.begin_request()
         subcommand, _, rest = arguments.strip().partition(" ")
         methods = {
             "add": self._task_add,
             "edit": self._task_edit,
             "delete": self._task_delete,
+            "done": self._task_done,
         }
         method = methods.get(subcommand.lower())
         if method is None:
@@ -460,6 +530,15 @@ class CommandRouter:
 
         result = self._app.toolkit.delete_task(fields[0])
         self._show_result(result, "task", "Deleted task")
+
+    def _task_done(self, fields):
+        """Handle `/task done <task>`."""
+        if len(fields) != 1 or not fields[0]:
+            self._ui.render_warn(self.TASK_USAGE)
+            return
+
+        result = self._app.toolkit.complete_task(fields[0])
+        self._show_result(result, "task", "Completed task")
 
     def _meet_command(self, arguments):
         """Handle `/meet add`, `/meet move`, `/meet edit` and `/meet cancel`."""
@@ -525,7 +604,7 @@ class CommandRouter:
         self._show_result(result, "meeting", "Cancelled meeting")
 
     def _done_command(self, arguments):
-        """Handle `/done <task id or title>`."""
+        """Handle `/done <task id or title>`, the older name for `/task done`."""
         self._app.toolkit.begin_request()
         task = arguments.strip()
         if not task:

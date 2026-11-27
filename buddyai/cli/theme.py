@@ -5,21 +5,50 @@ import sys
 from rich.text import Text
 from rich.theme import Theme
 
+# The commands /help lists, in groups. Older names (/done, /file, /models,
+# /exit) still work but are left out so the list stays short.
+COMMAND_GROUPS = [
+    (
+        "Session",
+        [
+            ("/help", "Show the commands"),
+            ("/status", "Show session & workspace summary"),
+            ("/clear", "Clear screen and show header"),
+            ("/model", "Switch Gemini model"),
+            ("/quit", "Exit BuddyAI"),
+        ],
+    ),
+    (
+        "Your day",
+        [
+            ("/brief", "Daily briefing: schedule, weather & top 5 PH news (no AI call)"),
+            ("/tasks", "Show open tasks & proposals (no AI call)"),
+        ],
+    ),
+    (
+        "Change data (no AI)",
+        [
+            ("/task", "add | edit | delete | done a task (type /task for the formats)"),
+            ("/meet", "add | move | edit | cancel a meeting (type /meet for the formats)"),
+        ],
+    ),
+    (
+        "Input",
+        [
+            ("@path", "Attach a PDF, PNG, JPG or TXT file inside your message"),
+            ("/calendar", "Load or show a calendar (.ics) file"),
+            ("/live", "BuddyAI Live: two-way voice chat (/live barge for headphones)"),
+            ("/voice", "Dictate a message into the text prompt (voice-to-text)"),
+        ],
+    ),
+]
+
+# Every listed /command, for autocomplete.
 SLASH_COMMANDS = [
-    ("/model", "Switch Gemini model"),
-    ("/file", "Attach a PDF, PNG, JPG, or TXT file"),
-    ("/calendar", "Load or show a calendar (.ics) file"),
-    ("/live", "BuddyAI Live: two-way voice chat (/live barge for headphones)"),
-    ("/voice", "Dictate a message into the text prompt (voice-to-text)"),
-    ("/task", "add | edit | delete a task, no AI call (type /task for the formats)"),
-    ("/meet", "add | move | edit | cancel a meeting, no AI call (type /meet for the formats)"),
-    ("/done", "Mark a task done by id or title, no AI call"),
-    ("/brief", "Show daily briefing: schedule, weather & top 5 PH news"),
-    ("/tasks", "Show open tasks & proposals (instant)"),
-    ("/status", "Show session & workspace summary"),
-    ("/clear", "Clear screen and show header"),
-    ("/help", "Show available commands"),
-    ("/quit", "Exit BuddyAI"),
+    (command, description)
+    for _, commands in COMMAND_GROUPS
+    for command, description in commands
+    if command.startswith("/")
 ]
 
 # Shown only inside the interactive /model picker.

@@ -18,6 +18,7 @@ from buddyai.agents import (
 from buddyai.app import BuddyApp
 from buddyai.briefing import BriefingService
 from buddyai.document_reader import DocumentReader
+from buddyai.exceptions import UnsupportedFileTypeError
 from buddyai.sources import JsonStore
 from buddyai.toolkit import BuddyToolkit
 from buddyai.workspace import Workspace
@@ -161,6 +162,16 @@ class TestBuddyAppOffline(unittest.TestCase):
             handle.write(b"x")
         reply = self.app.ask("Summarize this", files=[bad_file])
         self.assertIn("Unsupported file type", reply)
+
+    def test_check_file_returns_the_absolute_path_of_a_supported_file(self):
+        notes = os.path.join(self._tmp.name, "notes.txt")
+        with open(notes, "w", encoding="utf-8") as handle:
+            handle.write("notes")
+        self.assertEqual(self.app.check_file(notes), os.path.abspath(notes))
+
+    def test_check_file_rejects_an_unsupported_type_before_any_model_request(self):
+        with self.assertRaises(UnsupportedFileTypeError):
+            self.app.check_file(os.path.join(self._tmp.name, "report.docx"))
 
     def test_ask_with_missing_file_returns_file_not_found(self):
         reply = self.app.ask(

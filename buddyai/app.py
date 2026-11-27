@@ -244,6 +244,15 @@ class BuddyApp:
         self._document_reader.set_model(name)
         return name
 
+    def check_file(self, path):
+        """Check that a file can be summarized, before any model request.
+
+        Returns the absolute path; raises UnsupportedFileTypeError or
+        InvalidInputError, so the terminal can show the error at once.
+        """
+        abs_path, _ = self._document_reader.validate_file(path)
+        return abs_path
+
     def save_upload(self, data, mime_type, name=""):
         """Save a file attached in the browser chat; return the text that replaces it.
 
